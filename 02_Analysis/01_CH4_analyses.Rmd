@@ -15,15 +15,15 @@ library(tidyverse)
 source("hm_style.R")
 source("make_lm_label.R")
 
-part <- read_csv(here::here("01_Data", "ch4.csv")) %>%
+ch4 <- read_csv(here::here("01_Data", "ch4.csv")) %>%
   mutate(MIU_VALVE = factor(MIU_VALVE, levels = chamber_labels))
 met <- read_csv(here::here("01_Data", "met.csv"))
 soil_temp <- read_csv(here::here("01_Data", "temp.csv")) %>%
   mutate(MIU_VALVE = factor(MIU_VALVE, levels = chamber_labels))
 
-n_days = as.numeric(difftime(max(part$DateTime),min(part$DateTime), units = "days"))
+n_days = as.numeric(difftime(max(ch4$DateTime),min(ch4$DateTime), units = "days"))
 
-part %>%
+ch4 %>%
   arrange(DateTime) %>%
   filter(is.na(CH4_filled))
 ```
@@ -31,7 +31,7 @@ part %>%
 Summary stats
 
 ```{r}
-part %>%
+ch4 %>%
   mutate(filled = ifelse(is.na(CH4) & !is.na(CH4_filled), T, F)) %>%
   group_by(MIU_VALVE) %>%
   summarize(n = sum(filled),
@@ -43,10 +43,10 @@ part %>%
 Data summary (Figure 2)
 
 ```{r}
-min_annual <- min(part$date[!is.na(part$CH4_umol_m2_h)])
-max_annual <- max(part$date[!is.na(part$CH4_umol_m2_h)])
+min_annual <- min(ch4$date[!is.na(ch4$CH4_umol_m2_h)])
+max_annual <- max(ch4$date[!is.na(ch4$CH4_umol_m2_h)])
 
-annual <- part %>%
+annual <- ch4 %>%
   group_by(date, MIU_VALVE) %>%
   summarize(CH4_umol_m2_h = mean(CH4_umol_m2_h, na.rm = T)) %>%
   ggplot(aes(x = date, y = CH4_umol_m2_h, color = MIU_VALVE)) +
@@ -71,7 +71,7 @@ annual_ST <- soil_temp %>%
   theme(axis.title.x = element_blank()) +
   ylab(expression(atop("Soil temp.", " (ºC)")))
 
-annual_wl <- part %>%
+annual_wl <- ch4 %>%
   group_by(date) %>%
   summarize(Depth_cm = mean(Depth_cm, na.rm = T)) %>%
   ggplot(aes(x = date, y = Depth_cm)) +
@@ -85,7 +85,7 @@ annual_wl <- part %>%
 start_date <- "2025-03-27"
 end_date <- "2025-04-06"
 
-focal_ch4 <- part %>%
+focal_ch4 <- ch4 %>%
   filter(date %in% seq.Date(as_date(start_date), as_date(end_date), by = "1 day")) %>%
   ggplot(aes(x = DateTime, y = CH4_umol_m2_h, color = MIU_VALVE)) +
   geom_hline(yintercept = 0, color = "grey80") +
@@ -95,7 +95,7 @@ focal_ch4 <- part %>%
   theme(axis.title.x = element_blank()) +
   ylab(expression(atop(CH[4] ~ "flux ", "(µmol" ~ m^-2 ~ h^-1 * ")")))
 
-focal_co2 <-part %>%
+focal_co2 <-ch4 %>%
   filter(date %in% seq.Date(as_date(start_date), as_date(end_date), by = "1 day")) %>%
   mutate(CO2_umol_m2_h  =ifelse(hour(DateTime) %in% 8:19, CO2_umol_m2_h, NA)) %>%
   ggplot(aes(x = DateTime, y = CO2_umol_m2_h, color = MIU_VALVE)) +
@@ -106,7 +106,7 @@ focal_co2 <-part %>%
   theme(axis.title.x = element_blank()) +
   ylab(expression(atop(CO[2] ~ "flux ", "(µmol" ~ m^-2 ~ h^-1 * ")")))
 
-focal_wl <- part %>%
+focal_wl <- ch4 %>%
   filter(date %in% seq.Date(as_date(start_date), as_date(end_date), by = "1 day")) %>%
   ggplot(aes(x = DateTime, y = Depth_cm)) +
   geom_hline(yintercept = 0, color = "grey80") +
@@ -228,7 +228,7 @@ ggsave("../03_Figures/Figure 2 - Data drivers pres.jpg", dpi = 300, width = 7, h
 The importance of hot moment events increases with temperature (Figure 3)
 
 ```{r}
-hm_df <- part %>%
+hm_df <- ch4 %>%
   filter(!is.na(CH4_umol_m2_h)) %>%
   group_by(date) %>%
   filter(length(unique(MIU_VALVE)) == 12)
@@ -440,7 +440,7 @@ Manual sampling underestimates
 reps <- 10000
 set.seed(4700)
 
-df <- part %>%
+df <- ch4 %>%
   mutate(day = yday(date),
          month = month(date),
          week = week(date),

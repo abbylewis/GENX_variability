@@ -16,23 +16,19 @@ library(tidyverse)
 library(data.table)
 library(waveslim)
 library(DescTools)
-source("../R/wavelet_functions.R")
-source("../R/make_lm_label.R")
-source("../analysis/hm_style.R")
+source("wavelet_functions.R")
+source("make_lm_label.R")
+source("hm_style.R")
 
-ch4 <- read_csv(here::here("processed_data", "L2- partitioned_and_gap_filled.csv")) %>%
-  mutate(CH4_filled = CH4_filled * (60 * 60), # h instead of s
-         TIMESTAMP = with_tz(TIMESTAMP, "EST")) %>%
-  rename(AirTC_Avg = Ta) %>%
-  filter(as_date(TIMESTAMP) <= "2025-11-15")
-
-soil_temp <- read_csv(here::here("processed_data", "soil_temp.csv")) %>%
-  rename(time_join = timestamp,
-         SoilTC_Avg = Temp_C)
+ch4 <- read_csv(here::here("01_Data", "ch4.csv")) %>%
+  rename(TIMESTAMP = DateTime)
+soil_temp <- read_csv(here::here("01_Data", "temp.csv")) %>%
+  rename(time_join = timestamp)
 
 ch4 = ch4 %>%
   mutate(time_join = round_date(TIMESTAMP, "15 minutes")) %>%
-  left_join(soil_temp)
+  left_join(soil_temp) %>%
+  mutate(MIU_VALVE = factor(MIU_VALVE, levels = chamber_labels))
 ```
 
 Run wavelet
@@ -116,8 +112,7 @@ discrete_scales <- dfs %>%
     CH4_unfilled = ifelse(na_ch4, NA, CH4_filled),
     GPP_unfilled = ifelse(na_gpp, NA, GPP_filled),
     MIU_VALVE = factor(MIU_VALVE,
-      levels = chamber_levels,
-      labels = chamber_labels2
+      levels = chamber_labels
     ),
     grouped_scale = factor(grouped_scale,
       levels = c("Hourly", "Daily", "Weekly", "Seasonal")
@@ -162,8 +157,7 @@ grouped_pct_var <- dfs %>%
   ungroup() %>%
   mutate(
     MIU_VALVE = factor(MIU_VALVE,
-      levels = chamber_levels,
-      labels = chamber_labels2
+      levels = chamber_labels
     ),
     grouped_scale = factor(grouped_scale,
       levels = c("Hourly", "Daily", "Weekly", "Seasonal")
@@ -227,28 +221,10 @@ h_to_s <- h_to_s_data %>%
   ylab("Hourly : seasonal") +
   xlab("Temperature treatment\n(ºC above ambient)")
 
-comb <- ggpubr::ggarrange(scales + theme(legend.position = "none"),
-  h_to_s + theme(legend.position = "bottom") +
-    guides(fill = guide_legend(
-      ncol = 2,
-      title.position = "top",
-      theme = theme(
-        legend.text = element_text(size = 8),
-        legend.key.spacing.y = unit(0, "cm"),
-        legend.key.spacing.x = unit(0, "cm")
-      )
-    )) +
-    ggtitle(""),
-  nrow = 1, widths = c(1.6, 1), labels = "auto"
-)
-
-comb
-
-ggsave(comb, filename = "../figures/variability_combined.png", width = 7, height = 4)
 ggsave(
   h_to_s +
     guides(fill = guide_legend(ncol = 2)),
-  filename = "../figures/h_to_s.png", width = 4, height = 4
+  filename = "../03_Figures/h_to_s.png", width = 4, height = 4
 )
 
 barchart <- grouped_pct_var %>%
@@ -297,7 +273,7 @@ scales_bar <- patchwork::wrap_plots(
     plot.margin = ggplot2::margin(b = 0, t = 0, r = 5, l = 5, unit = "pt")
   )
 
-ggsave(scales_bar, filename = "../figures/wavelet_scales_bar.png", width = 7, height = 4.5)
+ggsave(scales_bar, filename = "../03_Figures/wavelet_scales_bar.png", width = 7, height = 4.5)
 ```
 
 Figure showing altered variability (maybe for SI?)
@@ -328,7 +304,7 @@ example <- discrete_scales %>%
 
 example
 
-ggsave(example, filename = "../figures/wavelet_example.png", width = 5, height = 3.5)
+ggsave(example, filename = "../03_Figures/wavelet_example.png", width = 5, height = 3.5)
 
 discrete_scales %>%
   mutate(
@@ -357,7 +333,7 @@ discrete_scales %>%
     legend.position = "none"
   )
 
-ggsave(filename = "../figures/wavelet_comprehensive.png", width = 10, height = 3.5)
+ggsave(filename = "../03_Figures/Figure 5 - wavelet_comprehensive.png", width = 10, height = 3.5)
 ```
 
 Spearman
@@ -464,7 +440,7 @@ spear <- relative_corr %>%
 
 spear
 
-ggsave(spear, filename = "../figures/spearman_correlations.png", width = 3, height = 4)
+ggsave(spear, filename = "../03_Figures/Figure 6 - Spearman correlations.png", width = 3, height = 4)
 
 relative_corr %>%
   mutate(Temp_C = sub(" ºC", "", str_extract(as.character(MIU_VALVE), "[0-9]+\\.*[0-9]* ºC")),
@@ -499,8 +475,7 @@ discrete_scales %>%
 ch4 %>%
   mutate(
     MIU_VALVE = factor(MIU_VALVE, 
-                       levels = chamber_levels, 
-                       labels = chamber_labels2),
+                       levels = chamber_labels),
     tod = hour(TIMESTAMP) +
       minute(TIMESTAMP) / 60 +
       second(TIMESTAMP) / 3600
@@ -518,8 +493,7 @@ ch4 %>%
 ch4 %>%
   mutate(
     MIU_VALVE = factor(MIU_VALVE, 
-                       levels = chamber_levels, 
-                       labels = chamber_labels2),
+                       levels = chamber_labels),
     tod = hour(TIMESTAMP) +
       minute(TIMESTAMP) / 60 +
       second(TIMESTAMP) / 3600,
@@ -541,8 +515,7 @@ ch4 %>%
 ch4 %>%
   mutate(
     MIU_VALVE = factor(MIU_VALVE, 
-                       levels = chamber_levels, 
-                       labels = chamber_labels2),
+                       levels = chamber_labels),
     tod = hour(TIMESTAMP) +
       minute(TIMESTAMP) / 60 +
       second(TIMESTAMP) / 3600
@@ -599,12 +572,7 @@ resids <- grouped_pct_var %>%
   mutate(resid = lm(var~Temp_C)$residuals) %>%
   select(grouped_scale, resid, MIU_VALVE)
 
-rtk <- read_csv(here::here("Raw_Data", "GENX_RTK_11mar2026.csv")) %>%
-  group_by(Chamber_ID) %>%
-  summarize(Elev_m = mean(Elev_m, na.rm = T), .groups = "drop") %>%
-  mutate(MIU_VALVE = factor(Chamber_ID,
-                            levels = 1:12,
-                            labels = chamber_labels2))
+rtk <- read_csv(here::here("01_Data", "rtk.csv")) 
 
 resids %>%
   left_join(rtk) %>%
@@ -619,13 +587,7 @@ resids %>%
   facet_wrap(~grouped_scale)
 
 ## BIOMASS
-agb <- read_csv("../Raw_data/biomass/2025 aboveground biomass.csv", show_col_types = F) %>%
-  filter(!grepl("Ref", Chamber)) %>%
-  mutate(MIU_VALVE = factor(Chamber,
-                            levels = 1:12,
-                            labels = chamber_labels2)) %>%
-  pivot_longer(cols = c("SCAM.g.m2", "TotalC4.g.m2", "SPPA.g.m2", "DISP.g.m2",
-                        "Other.g.m2", "Above.g.m2"))
+agb <- read_csv(here::here("01_Data","agb"), show_col_types = F) 
 
 resids %>%
   left_join(agb) %>%
@@ -662,44 +624,10 @@ resids %>%
 
 
 # Stem width/height
-library(readxl)
-files <- list.files("../Raw_data/biomass", full.names = T)
-stem_files <- files[grepl("1-", files)]
-stems <- stem_files %>%
-  map(read_excel, col_types = "text") %>%
-  bind_rows() %>%
-  mutate(
-    chamber_ref = as.numeric(str_extract(Chamber, "[0-9]+")),
-    chamber_ref = factor(chamber_ref,
-      levels = 1:12,
-      labels = 1:12
-    ),
-    `Measurement type` = ifelse(grepl("Ref", Chamber), "Reference", "Chamber"),
-    Total_Height = as.numeric(Total_Height),
-    Width = as.numeric(Width)
-  ) %>%
-  filter(Year == 2025,
-         `Measurement type` == "Chamber") %>%
-  mutate(MIU_VALVE = factor(Chamber,
-                            levels = 1:12,
-                            labels = chamber_labels2)) %>%
-  select(MIU_VALVE, Total_Height, Width)
+stems <- read_csv(here::here("01_Data", "stems.csv"))
 
 # Stem count
-count_files <- files[grepl("2-", files)]
-counts <- count_files %>%
-  map(read_excel, col_types = "text") %>%
-  bind_rows() %>%
-  mutate(
-    chamber_ref = as.numeric(str_extract(Chamber, "[0-9]+")),
-    chamber_ref = factor(chamber_ref,
-      levels = 1:12,
-      labels = 1:12
-    ),
-    `Measurement type` = ifelse(grepl("Ref", Chamber), "Reference", "Chamber"),
-    Count = as.numeric(ifelse(is.na(Count), StemCount, Count))
-  ) %>%
-  select(-StemCount) 
+counts <- read_csv(here::here("01_Data", "counts.csv"))
 
 stems_long = stems %>%
   pivot_longer(c(Total_Height, Width))

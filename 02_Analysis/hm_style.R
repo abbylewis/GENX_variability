@@ -1,0 +1,26 @@
+soil_labs <- read_csv(here::here("01_data", "temp.csv")) %>%
+  mutate(ch = as.numeric(trimws(substr(MIU_VALVE, 5,6)))) %>%
+  select(ch, MIU_VALVE) %>%
+  arrange(ch) %>%
+  distinct()
+
+chamber_labels <- soil_labs$MIU_VALVE
+
+# Colorblind friendly pride palette
+# https://www.reddit.com/r/vexillology/comments/v2luae/the_6colour_pride_flag_but_colourblindfriendly/
+color.vals <- c("#D60303", "#FF790B", "#EAEE03", "#06D68B", "#017EFF", "blue4")
+color.gradient <- colorRampPalette(rev(color.vals))(12)
+
+theme_hm <- egg::theme_article() +
+  theme(
+    panel.grid.major = element_line(color = "grey93", linewidth = 0.5),
+    panel.grid.minor = element_line(color = "grey95", linewidth = 0.25),
+    legend.position = "bottom",
+    legend.title.position = "top",
+    plot.background = element_rect(fill = "white"),
+    legend.text = element_text(size = 8),
+    legend.key.spacing.y = unit(0, "cm"),
+    legend.key.spacing.x = unit(0.5, "cm"),
+    legend.justification = "left",
+    legend.location = "plot"
+  )

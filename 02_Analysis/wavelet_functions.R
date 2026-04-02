@@ -21,13 +21,13 @@ bin_ranked <- function(x, n_breaks) {
 
 make_grid <- function(g) {
   data.table(
-    TIMESTAMP = seq(min(g$TIMESTAMP), max(g$TIMESTAMP), by = "130 min"),
-    MIU_VALVE = g$MIU_VALVE[1]
+    DateTime_EST = seq(min(g$DateTime_EST), max(g$DateTime_EST), by = "130 min"),
+    Chamber = g$Chamber[1]
   )
 }
 
 double_map <- function(treatment, ch4, var_name, timestep_s) {
-  dfs <- map(unique(ch4$MIU_VALVE),
+  dfs <- map(unique(ch4$Chamber),
     analyze_wavelets,
     ch4 = ch4,
     var_name = var_name,
@@ -39,15 +39,15 @@ double_map <- function(treatment, ch4, var_name, timestep_s) {
 analyze_wavelets <- function(ch4, treatment, var_name, timestep_s) {
   # Format data (dealing with irregularly spaced data)
   test_data <- ch4 %>%
-    filter(MIU_VALVE == treatment) %>%
+    filter(Chamber == treatment) %>%
     filter(!is.na(!!sym(var_name)))
 
   # Run wavelet transformation
   data <- zoo::na.approx(test_data[[var_name]])
   wavelet <- waveslim::modwt(data, "la8", n.levels = 11)
-  
+
   meshed <- data.frame(
-    TIMESTAMP = test_data$TIMESTAMP,
+    DateTime_EST = test_data$DateTime_EST,
     data,
     l_1 = wavelet[[1]],
     l_2 = wavelet[[2]],
@@ -61,7 +61,7 @@ analyze_wavelets <- function(ch4, treatment, var_name, timestep_s) {
     l_10 = wavelet[[10]],
     l_11 = wavelet[[11]]
   ) %>%
-    pivot_longer(cols = -c(data, TIMESTAMP)) %>%
+    pivot_longer(cols = -c(data, DateTime_EST)) %>%
     mutate(
       name = as.numeric(sub("l_", "", name)),
       name = factor(name,
@@ -69,9 +69,9 @@ analyze_wavelets <- function(ch4, treatment, var_name, timestep_s) {
         labels = parse_time(2^(1:11) * timestep_s)
       )
     )
-  
+
   recon <- data.frame(
-    TIMESTAMP = test_data$TIMESTAMP,
+    DateTime_EST = test_data$DateTime_EST,
     data,
     l_1 = inverse_by_level(wavelet, 1),
     l_2 = inverse_by_level(wavelet, 2),
@@ -85,20 +85,22 @@ analyze_wavelets <- function(ch4, treatment, var_name, timestep_s) {
     l_10 = inverse_by_level(wavelet, 10),
     l_11 = inverse_by_level(wavelet, 11)
   ) %>%
-    pivot_longer(cols = -c(data, TIMESTAMP),
-                 values_to = "reconstructed") %>%
+    pivot_longer(
+      cols = -c(data, DateTime_EST),
+      values_to = "reconstructed"
+    ) %>%
     mutate(
       name = as.numeric(sub("l_", "", name)),
       name = factor(name,
-                    levels = 1:11,
-                    labels = parse_time(2^(1:11) * timestep_s)
+        levels = 1:11,
+        labels = parse_time(2^(1:11) * timestep_s)
       )
     )
 
   df <- meshed %>%
-    left_join(recon, by = join_by(TIMESTAMP, data, name)) %>%
+    left_join(recon, by = join_by(DateTime_EST, data, name)) %>%
     mutate(
-      MIU_VALVE = treatment,
+      Chamber = treatment,
       var_name = var_name
     )
 
@@ -107,22 +109,22 @@ analyze_wavelets <- function(ch4, treatment, var_name, timestep_s) {
 
 inverse_by_level <- function(wavelet, level) {
   wt_selected <- wavelet
-  
+
   # Get number of levels from object
   detail_names <- grep("^d[0-9]+$", names(wt_selected), value = TRUE)
-  
+
   for (name in detail_names) {
     l <- as.numeric(sub("d", "", name))
-    
+
     if (l != level) {
       wt_selected[[name]] <- rep(0, length(wt_selected[[name]]))
     }
   }
-  
+
   # Zero scaling coefficients
   s_name <- names(wt_selected)[!names(wt_selected) %in% detail_names]
   wt_selected[[s_name]] <- rep(0, length(wt_selected[[s_name]]))
-  
+
   reconstructed <- imodwt(wt_selected)
   return(reconstructed)
 }

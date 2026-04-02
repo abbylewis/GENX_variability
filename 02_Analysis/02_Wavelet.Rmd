@@ -20,53 +20,52 @@ source("wavelet_functions.R")
 source("make_lm_label.R")
 source("hm_style.R")
 
-ch4 <- read_csv(here::here("01_Data", "ch4.csv")) %>%
-  rename(TIMESTAMP = DateTime)
-soil_temp <- read_csv(here::here("01_Data", "temp.csv")) %>%
-  rename(time_join = timestamp)
+ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv"))
+soil_temp <- read_csv(here::here("01_Data", "Soil_temp.csv")) %>%
+  rename(time_join = DateTime_EST)
 
-ch4 = ch4 %>%
-  mutate(time_join = round_date(TIMESTAMP, "15 minutes")) %>%
+ch4 <- ch4 %>%
+  mutate(time_join = round_date(DateTime_EST, "15 minutes")) %>%
   left_join(soil_temp) %>%
-  mutate(MIU_VALVE = factor(MIU_VALVE, levels = chamber_labels))
+  mutate(Chamber = factor(Chamber, levels = chamber_labels))
 ```
 
 Run wavelet
 
 ```{r}
 drivers <- c(
-  "AirTC_Avg",
-  "SoilTC_Avg",
+  "AirTemp_C",
+  "SoilTemp_C",
   "Depth_cm",
-  "GPP_filled",
+  "GPP_umol_m2_h",
   "Salinity",
-  "Reco"
+  "Reco_umol_m2_h"
 )
 
 driver_labels <- c(
-  AirTC_Avg = "Air temperature",
-  SoilTC_Avg = "Soil temperature",
+  AirTemp_C = "Air temperature",
+  SoilTemp_C = "Soil temperature",
   Depth_cm = "Water depth",
-  GPP_filled = "GPP",
+  GPP_umol_m2_h = "GPP",
   GPP_unfilled = "GPP",
   Salinity = "Salinity",
-  Reco = "Reco"
+  Reco_umol_m2_h = "Reco_umol_m2_h"
 )
 
 driver_colors <- c(
-  AirTC_Avg = "#E76D66",
-  SoilTC_Avg = "brown4",
+  AirTemp_C = "#E76D66",
+  SoilTemp_C = "brown4",
   Depth_cm = "#2176AB",
-  GPP_filled = "#3BAA5D",
+  GPP_umol_m2_h = "#3BAA5D",
   GPP_unfilled = "#3BAA5D",
   Salinity = "#6A4C93",
-  Reco = "#264653"
+  Reco_umol_m2_h = "#264653"
 )
 
 # Apply across all treatments and sites
 grid <- ch4 %>%
   pivot_longer(
-    cols = c("CH4_filled", drivers),
+    cols = c("CH4_umol_m2_h", drivers),
     # NOTE: I've also tried EVI and PAR but they don't add much
     names_to = "var_name", values_to = "value"
   )
@@ -74,7 +73,7 @@ grid <- ch4 %>%
 dfs <- map(unique(grid$var_name),
   double_map,
   ch4 = ch4,
-  treatment = unique(ch4$MIU_VALVE),
+  treatment = unique(ch4$Chamber),
   timestep_s = 7800
 ) %>%
   bind_rows()
@@ -82,10 +81,10 @@ dfs <- map(unique(grid$var_name),
 # Re-introduce NAs
 nas_to_add <- ch4 %>%
   mutate(
-    na_ch4 = ifelse(is.na(CH4), T, F),
-    na_gpp = ifelse(is.na(GPP), T, F)
+    na_ch4 = ifelse(is.na(CH4_umol_m2_h_not_gapfilled), T, F),
+    na_gpp = ifelse(is.na(GPP_umol_m2_h_not_gapfilled), T, F)
   ) %>%
-  select(TIMESTAMP, MIU_VALVE, na_ch4, na_gpp) %>%
+  select(DateTime_EST, Chamber, na_ch4, na_gpp) %>%
   distinct()
 
 # Group wavelet scales into interpretable bins
@@ -101,17 +100,19 @@ discrete_scales <- dfs %>%
     )
   ) %>%
   select(-num_value) %>%
-  group_by(grouped_scale, MIU_VALVE, TIMESTAMP, var_name) %>%
-  summarize(value = sum(value, na.rm = T),
-            reconstructed = sum(reconstructed, na.rm = T), 
-            .groups = "drop") %>%
+  group_by(grouped_scale, Chamber, DateTime_EST, var_name) %>%
+  summarize(
+    value = sum(value, na.rm = T),
+    reconstructed = sum(reconstructed, na.rm = T),
+    .groups = "drop"
+  ) %>%
   pivot_wider(names_from = var_name, values_from = c(value, reconstructed)) %>%
   rename_with(~ gsub("value_", "", .x)) %>%
   left_join(nas_to_add) %>%
   mutate(
-    CH4_unfilled = ifelse(na_ch4, NA, CH4_filled),
-    GPP_unfilled = ifelse(na_gpp, NA, GPP_filled),
-    MIU_VALVE = factor(MIU_VALVE,
+    CH4_unfilled = ifelse(na_ch4, NA, CH4_umol_m2_h),
+    GPP_unfilled = ifelse(na_gpp, NA, GPP_umol_m2_h),
+    Chamber = factor(Chamber,
       levels = chamber_labels
     ),
     grouped_scale = factor(grouped_scale,
@@ -122,9 +123,9 @@ discrete_scales <- dfs %>%
 
 # Separate explanatory variables
 discrete_scales_exp <- discrete_scales %>%
-  dplyr::select(-matches("CH4_unfilled|CH4_filled|GPP_unfilled|recon")) %>%
+  dplyr::select(-matches("CH4_unfilled|CH4_umol_m2_h|GPP_unfilled|recon")) %>%
   pivot_longer(
-    cols = -c(grouped_scale, MIU_VALVE, TIMESTAMP),
+    cols = -c(grouped_scale, Chamber, DateTime_EST),
     names_to = "exp_var", values_to = "exp_var_value"
   ) %>%
   filter(!is.na(exp_var_value)) %>%
@@ -146,23 +147,25 @@ grouped_pct_var <- dfs %>%
     )
   ) %>%
   select(-num_value) %>%
-  group_by(grouped_scale, MIU_VALVE, TIMESTAMP, var_name) %>%
-  summarize(value = sum(value),
-            .groups = "drop") %>%
-  filter(var_name == "CH4_filled") %>%
-  group_by(grouped_scale, MIU_VALVE, var_name) %>%
+  group_by(grouped_scale, Chamber, DateTime_EST, var_name) %>%
+  summarize(
+    value = sum(value),
+    .groups = "drop"
+  ) %>%
+  filter(var_name == "CH4_umol_m2_h") %>%
+  group_by(grouped_scale, Chamber, var_name) %>%
   summarize(var = var(value, na.rm = T)) %>%
-  group_by(MIU_VALVE, var_name) %>%
+  group_by(Chamber, var_name) %>%
   mutate(tot_var = sum(var, na.rm = T)) %>%
   ungroup() %>%
   mutate(
-    MIU_VALVE = factor(MIU_VALVE,
+    Chamber = factor(Chamber,
       levels = chamber_labels
     ),
     grouped_scale = factor(grouped_scale,
       levels = c("Hourly", "Daily", "Weekly", "Seasonal")
     ),
-    Temp_C = sub(" ºC", "", str_extract(as.character(MIU_VALVE), "[0-9]+\\.*[0-9]* ºC")),
+    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "[0-9]+\\.*[0-9]* ºC")),
     Temp_C = as.numeric(sub("mb", "0", Temp_C))
   )
 
@@ -177,7 +180,7 @@ scales <- grouped_pct_var %>%
   mutate(sd = sqrt(var)) %>%
   ggplot(aes(x = Temp_C, y = sd)) +
   geom_smooth(method = "lm", color = "black") +
-  geom_point(aes(fill = MIU_VALVE), size = 2, stroke = 0.5, shape = 21) +
+  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
   geom_text(
     aes(x = -Inf, y = Inf, label = label),
     hjust = 0, vjust = 1.1,
@@ -192,7 +195,7 @@ scales <- grouped_pct_var %>%
   xlab("Temperature treatment (ºC above ambient)")
 
 h_to_s_data <- grouped_pct_var %>%
-  group_by(MIU_VALVE, Temp_C) %>%
+  group_by(Chamber, Temp_C) %>%
   summarise(
     h_to_s = sqrt(var[grouped_scale == "Hourly"]) /
       sqrt(var[grouped_scale == "Seasonal"]),
@@ -208,7 +211,7 @@ h_to_s_label <- make_lm_label(
 h_to_s <- h_to_s_data %>%
   ggplot(aes(x = Temp_C, y = h_to_s)) +
   geom_smooth(method = "lm", color = "black") +
-  geom_point(aes(fill = MIU_VALVE), size = 2, stroke = 0.5, shape = 21) +
+  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
   geom_text(
     aes(x = -Inf, y = Inf, label = label),
     hjust = 0, vjust = 1.1,
@@ -234,7 +237,7 @@ barchart <- grouped_pct_var %>%
       levels = rev(levels(grouped_scale))
     )
   ) %>%
-  ggplot(aes(x = MIU_VALVE, y = var / tot_var, fill = grouped_scale)) +
+  ggplot(aes(x = Chamber, y = var / tot_var, fill = grouped_scale)) +
   geom_col(color = "black", linewidth = 0.2, width = 0.8) +
   theme_hm +
   scale_fill_manual(
@@ -281,11 +284,11 @@ Figure showing altered variability (maybe for SI?)
 ```{r}
 example <- discrete_scales %>%
   filter(grouped_scale == "Seasonal" |
-    month(TIMESTAMP) == 7 & day(TIMESTAMP) %in% 8:14 & grouped_scale == "Weekly" |
-    month(TIMESTAMP) == 7 & day(TIMESTAMP) %in% 8:14 & grouped_scale == "Daily" |
-    month(TIMESTAMP) == 7 & day(TIMESTAMP) %in% 8:14 & grouped_scale == "Hourly") %>%
+    month(DateTime_EST) == 7 & day(DateTime_EST) %in% 8:14 & grouped_scale == "Weekly" |
+    month(DateTime_EST) == 7 & day(DateTime_EST) %in% 8:14 & grouped_scale == "Daily" |
+    month(DateTime_EST) == 7 & day(DateTime_EST) %in% 8:14 & grouped_scale == "Hourly") %>%
   mutate(grouped_scale = factor(grouped_scale, levels = rev(levels(grouped_scale)))) %>%
-  ggplot(aes(x = TIMESTAMP, y = reconstructed_CH4_filled, color = MIU_VALVE)) +
+  ggplot(aes(x = DateTime_EST, y = reconstructed_CH4_umol_m2_h, color = Chamber)) +
   geom_line() +
   ylab(expression("Methane flux (µmol" ~ m^-2 ~ h^-1 * ")")) +
   facet_wrap(~grouped_scale, scales = "free_x") +
@@ -309,21 +312,21 @@ ggsave(example, filename = "../03_Figures/wavelet_example.png", width = 5, heigh
 discrete_scales %>%
   mutate(
     grouped_scale = factor(grouped_scale, levels = rev(levels(grouped_scale))),
-    MIU_VALVE = factor(MIU_VALVE,
-      levels = levels(MIU_VALVE),
-      labels = sub(" \\(.+\\)", "", levels(MIU_VALVE))
+    Chamber = factor(Chamber,
+      levels = levels(Chamber),
+      labels = sub(" \\(.+\\)", "", levels(Chamber))
     )
   ) %>%
-  ggplot(aes(x = TIMESTAMP, y = reconstructed_CH4_filled, color = MIU_VALVE)) +
+  ggplot(aes(x = DateTime_EST, y = reconstructed_CH4_umol_m2_h, color = Chamber)) +
   geom_line() +
   ylab(expression("Methane flux (µmol" ~ m^-2 ~ h^-1 * ")")) +
-  facet_grid(grouped_scale ~ MIU_VALVE, scales = "free") +
+  facet_grid(grouped_scale ~ Chamber, scales = "free") +
   scale_color_manual(values = color.gradient, name = "Chamber") +
   theme_hm +
   scale_x_datetime(
     breaks = seq(
       from = as.POSIXct("2020-04-01"),
-      to   = max(discrete_scales$TIMESTAMP, na.rm = TRUE),
+      to   = max(discrete_scales$DateTime_EST, na.rm = TRUE),
       by   = "6 months"
     ),
     date_labels = "%b"
@@ -341,15 +344,15 @@ Spearman
 ```{r}
 # Calculate Spearman correlation
 spearman_corrs <- discrete_scales %>%
-  dplyr::select(c(grouped_scale, MIU_VALVE, TIMESTAMP, CH4_filled)) %>%
+  dplyr::select(c(grouped_scale, Chamber, DateTime_EST, CH4_umol_m2_h)) %>%
   left_join(discrete_scales_exp, relationship = "many-to-many") %>%
   filter(
     !is.na(exp_var_value),
-    !is.na(CH4_filled)
+    !is.na(CH4_umol_m2_h)
   ) %>%
-  group_by(MIU_VALVE, grouped_scale, exp_var, grouped_scale_exp) %>%
+  group_by(Chamber, grouped_scale, exp_var, grouped_scale_exp) %>%
   summarize(
-    spearman_rho = cor(exp_var_value, CH4_filled,
+    spearman_rho = cor(exp_var_value, CH4_umol_m2_h,
       method = "spearman",
       use = "complete.obs"
     ),
@@ -378,7 +381,7 @@ ggplot(
 ) +
   geom_point(size = 0.5) +
   geom_line() +
-  facet_wrap(~MIU_VALVE) +
+  facet_wrap(~Chamber) +
   xlab("Wavelet scale of variation") +
   ylab("Absolute Spearman correlation (|ρ|)") +
   scale_color_manual(
@@ -396,7 +399,7 @@ relative_corr %>%
     color = exp_var,
     group = exp_var
   )) +
-  geom_line(alpha = 0.1, aes(group = paste0(MIU_VALVE, exp_var))) +
+  geom_line(alpha = 0.1, aes(group = paste0(Chamber, exp_var))) +
   geom_line(
     data = . %>% group_by(exp_var, grouped_scale) %>%
       summarize(abs_rho = mean(abs_rho)),
@@ -420,7 +423,7 @@ spear <- relative_corr %>%
     group = exp_var
   )) +
   geom_hline(color = "grey50", yintercept = 0) +
-  geom_line(alpha = 0.1, aes(group = paste0(MIU_VALVE, exp_var))) +
+  geom_line(alpha = 0.1, aes(group = paste0(Chamber, exp_var))) +
   geom_line(
     data = . %>% group_by(exp_var, grouped_scale) %>%
       summarize(spearman_rho = mean(spearman_rho)),
@@ -443,12 +446,16 @@ spear
 ggsave(spear, filename = "../03_Figures/Figure 6 - Spearman correlations.png", width = 3, height = 4)
 
 relative_corr %>%
-  mutate(Temp_C = sub(" ºC", "", str_extract(as.character(MIU_VALVE), "[0-9]+\\.*[0-9]* ºC")),
-    Temp_C = as.numeric(sub("mb", "0", Temp_C))) %>%
-  ggplot(aes(x = Temp_C, y = spearman_rho,
-         color = MIU_VALVE))+
-  geom_point()+
-  facet_grid(exp_var~grouped_scale)
+  mutate(
+    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "[0-9]+\\.*[0-9]* ºC")),
+    Temp_C = as.numeric(sub("mb", "0", Temp_C))
+  ) %>%
+  ggplot(aes(
+    x = Temp_C, y = spearman_rho,
+    color = Chamber
+  )) +
+  geom_point() +
+  facet_grid(exp_var ~ grouped_scale)
 ```
 
 
@@ -457,12 +464,12 @@ relative_corr %>%
 
 discrete_scales %>%
   mutate(
-    tod = hour(TIMESTAMP) +
-      minute(TIMESTAMP) / 60 +
-      second(TIMESTAMP) / 3600
+    tod = hour(DateTime_EST) +
+      minute(DateTime_EST) / 60 +
+      second(DateTime_EST) / 3600
   ) %>%
   filter(grouped_scale == "Daily") %>%
-  ggplot(aes(x = tod, y = reconstructed_CH4_filled, color = MIU_VALVE)) +
+  ggplot(aes(x = tod, y = reconstructed_CH4_umol_m2_h, color = Chamber)) +
   geom_smooth(
     method = "gam",
     formula = y ~ s(x, bs = "cc", k = 12),
@@ -474,13 +481,14 @@ discrete_scales %>%
 
 ch4 %>%
   mutate(
-    MIU_VALVE = factor(MIU_VALVE, 
-                       levels = chamber_labels),
-    tod = hour(TIMESTAMP) +
-      minute(TIMESTAMP) / 60 +
-      second(TIMESTAMP) / 3600
+    Chamber = factor(Chamber,
+      levels = chamber_labels
+    ),
+    tod = hour(DateTime_EST) +
+      minute(DateTime_EST) / 60 +
+      second(DateTime_EST) / 3600
   ) %>%
-  ggplot(aes(x = tod, y = CH4_filled, color = MIU_VALVE)) +
+  ggplot(aes(x = tod, y = CH4_umol_m2_h, color = Chamber)) +
   geom_smooth(
     method = "gam",
     formula = y ~ s(x, bs = "cc", k = 12),
@@ -492,16 +500,19 @@ ch4 %>%
 
 ch4 %>%
   mutate(
-    MIU_VALVE = factor(MIU_VALVE, 
-                       levels = chamber_labels),
-    tod = hour(TIMESTAMP) +
-      minute(TIMESTAMP) / 60 +
-      second(TIMESTAMP) / 3600,
-    season = case_when(month(TIMESTAMP) %in% c(3:5)~"Spring",
-                       month(TIMESTAMP) %in% c(6:8)~"Summer",
-                       month(TIMESTAMP) %in% c(9:11)~"Autumn")
+    Chamber = factor(Chamber,
+      levels = chamber_labels
+    ),
+    tod = hour(DateTime_EST) +
+      minute(DateTime_EST) / 60 +
+      second(DateTime_EST) / 3600,
+    season = case_when(
+      month(DateTime_EST) %in% c(3:5) ~ "Spring",
+      month(DateTime_EST) %in% c(6:8) ~ "Summer",
+      month(DateTime_EST) %in% c(9:11) ~ "Autumn"
+    )
   ) %>%
-  ggplot(aes(x = tod, y = CH4_filled, color = MIU_VALVE)) +
+  ggplot(aes(x = tod, y = CH4_umol_m2_h, color = Chamber)) +
   geom_smooth(
     method = "gam",
     formula = y ~ s(x, bs = "cc", k = 12),
@@ -509,18 +520,19 @@ ch4 %>%
   ) +
   scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, 6)) +
   scale_color_manual(values = color.gradient) +
-  theme_hm+
+  theme_hm +
   facet_wrap(~season)
 
 ch4 %>%
   mutate(
-    MIU_VALVE = factor(MIU_VALVE, 
-                       levels = chamber_labels),
-    tod = hour(TIMESTAMP) +
-      minute(TIMESTAMP) / 60 +
-      second(TIMESTAMP) / 3600
+    Chamber = factor(Chamber,
+      levels = chamber_labels
+    ),
+    tod = hour(DateTime_EST) +
+      minute(DateTime_EST) / 60 +
+      second(DateTime_EST) / 3600
   ) %>%
-  ggplot(aes(x = tod, y = GPP_filled, color = MIU_VALVE)) +
+  ggplot(aes(x = tod, y = GPP_umol_m2_h, color = Chamber)) +
   geom_smooth(
     method = "gam",
     formula = y ~ s(x, bs = "cc", k = 12),
@@ -532,12 +544,12 @@ ch4 %>%
 
 discrete_scales %>%
   mutate(
-    tod = hour(TIMESTAMP) +
-      minute(TIMESTAMP) / 60 +
-      second(TIMESTAMP) / 3600
+    tod = hour(DateTime_EST) +
+      minute(DateTime_EST) / 60 +
+      second(DateTime_EST) / 3600
   ) %>%
   filter(grouped_scale == "Daily") %>%
-  ggplot(aes(x = tod, y = reconstructed_GPP_filled, color = MIU_VALVE)) +
+  ggplot(aes(x = tod, y = reconstructed_GPP_umol_m2_h, color = Chamber)) +
   geom_smooth(
     method = "gam",
     formula = y ~ s(x, bs = "cc", k = 12),
@@ -547,13 +559,13 @@ discrete_scales %>%
   scale_color_manual(values = color.gradient) +
   theme_hm
 
-part %>%
+ch4 %>%
   mutate(
-    tod = hour(DateTime) +
-      minute(DateTime) / 60 +
-      second(DateTime) / 3600
+    tod = hour(DateTime_EST) +
+      minute(DateTime_EST) / 60 +
+      second(DateTime_EST) / 3600
   ) %>%
-  ggplot(aes(x = tod, y = NEE, color = MIU_VALVE)) +
+  ggplot(aes(x = tod, y = CO2_umol_m2_h, color = Chamber)) +
   geom_smooth(
     method = "gam",
     formula = y ~ s(x, bs = "cc", k = 12),
@@ -567,165 +579,75 @@ part %>%
 Resids
 
 ```{r}
+# Load driver data
+rtk <- read_csv(here::here("01_Data", "Chamber_elevation.csv")) %>%
+  select(-Latitude_DD, -Longitude_DD) %>%
+  mutate(Type = "") %>%
+  pivot_longer(-c(Chamber, Type))
+agb <- read_csv(here::here("01_Data", "Aboveground_biomass.csv"),
+  show_col_types = F
+) %>%
+  mutate(Type = "Aboveground~biomass~(g/m^2)") %>%
+  pivot_longer(-c(Chamber, Type))
+stems <- read_csv(here::here("01_Data", "SCAM_Stem_measurements.csv")) %>%
+  mutate(Type = "italic('S. americanus')~stem~traits") %>%
+  pivot_longer(-c(Chamber, Type)) %>%
+  group_by(Chamber, Type, name) %>%
+  summarize(value = median(value))
+counts <- read_csv(here::here("01_Data", "SCAM_Stem_counts.csv")) %>%
+  mutate(Type = "italic('S. americanus')~stem~traits") %>%
+  pivot_longer(-c(Chamber, Type))
+
+drivers <- rtk %>%
+  bind_rows(agb) %>%
+  bind_rows(stems) %>%
+  bind_rows(counts) %>%
+  mutate(name = case_match(
+    name,
+    "Elev_m" ~ "Elevation~(m)",
+    "SCAM_g_m2" ~ "C[3]",
+    "TotalC4_g_m2" ~ "C[4]",
+    "TotalAboveground_g_m2" ~ "Total",
+    "SCAM_Height_cm" ~ "Height~(cm)",
+    "SCAM_Width_mm" ~ "Width~(mm)",
+    "SCAM_Stem_count" ~ "Count"
+  ))
+
+# Calculate residuals
 resids <- grouped_pct_var %>%
   group_by(grouped_scale) %>%
-  mutate(resid = lm(var~Temp_C)$residuals) %>%
-  select(grouped_scale, resid, MIU_VALVE)
-
-rtk <- read_csv(here::here("01_Data", "rtk.csv")) 
+  mutate(resid = lm(var ~ Temp_C)$residuals) %>%
+  select(grouped_scale, resid, Chamber)
 
 resids %>%
-  left_join(rtk) %>%
-  ggplot(aes(x = Elev_m, y = resid))+
-  geom_point(aes(color = MIU_VALVE))+
-  theme_hm+
+  left_join(drivers) %>%
+  ggplot(aes(x = value, y = resid)) +
+  geom_point(aes(color = Chamber)) +
+  theme_hm +
   scale_color_manual(values = color.gradient, name = "Chamber") +
-  xlab("Elevation (m)")+
-  ylab("Residual")+
-  geom_smooth(method = "lm")+
-  ggpubr::stat_cor()+
-  facet_wrap(~grouped_scale)
-
-## BIOMASS
-agb <- read_csv(here::here("01_Data","agb"), show_col_types = F) 
-
-resids %>%
-  left_join(agb) %>%
-  ggplot(aes(x = value, y = resid, color = MIU_VALVE))+
-  geom_point()+
-  theme_hm+
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  xlab("Biomass (g/m2)")+
-  ylab("Residual (negative means that hot moments\nare less influential than expected)")+
-  facet_grid(grouped_scale~name, scales = "free")
-
-bio_label <- make_lm_label(
-  data = resids %>%
-  left_join(agb),
-  xvar = "value",
-  yvar = "resid",
-  group_var = "name"
-)
-
-resids %>%
-  left_join(agb, relationship = "many-to-many") %>%
-  filter(!name == "Other.g.m2") %>%
-  group_by(name, grouped_scale) %>%
-  mutate(p = summary(lm(resid~value))$coefficients[2,4]) %>%
-  ggplot(aes(x = value, y = resid))+
-  geom_smooth(method = "lm", data = . %>% filter(p < 0.05), color = "black")+
-  geom_point(aes(color = MIU_VALVE))+
-  theme_hm+
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  xlab("Biomass (g/m2)")+
-  ylab("Residual (negative means that hot moments\nare less influential than expected)")+
-  facet_grid(grouped_scale~name, scales = "free")+
-  ggpubr::stat_cor(size = 2)
-
-
-# Stem width/height
-stems <- read_csv(here::here("01_Data", "stems.csv"))
-
-# Stem count
-counts <- read_csv(here::here("01_Data", "counts.csv"))
-
-stems_long = stems %>%
-  pivot_longer(c(Total_Height, Width))
-  
-resids %>%
-  left_join(stems_long) %>%
-  ggplot(aes(x = value, y = resid))+
-  geom_point(aes(color = MIU_VALVE))+
-  geom_smooth(method = "lm")+
-  theme_hm+
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  facet_grid(grouped_scale~name, scales = "free")
-
-resids %>%
-  left_join(stems_long %>%
-              group_by(MIU_VALVE, name) %>%
-              summarize(value = median(value)),
-            relationship = "many-to-many") %>%
-  ggplot(aes(x = value, y = resid))+
-  geom_point(aes(color = MIU_VALVE))+
-  geom_smooth(method = "lm")+
-  theme_hm+
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  facet_grid(grouped_scale~name, scales = "free")
-
-resids %>%
-  left_join(stems_long %>%
-              group_by(MIU_VALVE, name) %>%
-              summarize(value = mean(value))) %>%
-  pivot_wider() %>%
-  ggplot(aes(x = Total_Height, y = Width))+
-  geom_point()
-
-counts = counts %>%
-  filter(Year == 2025,
-         `Measurement type` == "Chamber") %>%
-  mutate(MIU_VALVE = factor(Chamber,
-                            levels = 1:12,
-                            labels = chamber_labels2)) %>%
-  select(MIU_VALVE, Count)
-  
-resids %>%
-  left_join(counts) %>%
-  ggplot(aes(x = Count, y = resid))+
-  geom_point(aes(color = MIU_VALVE))+
-  geom_smooth(method = "lm")+
-  theme_hm+
-  scale_color_manual(values = color.gradient, name = "Chamber")+
-  facet_wrap(~grouped_scale)+
-  ggpubr::stat_cor()
-
-resids %>%
-  left_join(stems_long %>%
-              group_by(MIU_VALVE, name) %>%
-              summarize(value = median(value))) %>%
-  bind_rows(resids %>%
-              left_join(counts %>%
-              pivot_longer(Count))) %>%
-  left_join(rtk) %>%
-  ggplot(aes(x = Elev_m, y = value))+
-  geom_point(aes(color = MIU_VALVE))+
-  geom_smooth(method = "lm")+
-  facet_wrap(~name, scales = "free_y")
-
-sa <- stems %>%
-  left_join(counts)  %>%
-  mutate(SA = 3*Width*Total_Height*Count)
-
-resids %>%
-  left_join(stems_long %>%
-              group_by(MIU_VALVE, name) %>%
-              summarize(value = median(value))%>%
-              bind_rows(counts %>%
-                          pivot_longer(Count))) %>%
-  pivot_wider() %>%
-  mutate(SA = 3*Width*Total_Height*Count) %>%
-  left_join(agb %>%
-              pivot_wider()) %>%
-  select(MIU_VALVE, resid, grouped_scale, SA, SCAM.g.m2) %>%
-  pivot_longer(c(SA, SCAM.g.m2)) %>%
-  ggplot(aes(x = value, y = resid))+
-  geom_point(aes(color = MIU_VALVE))+
-  geom_smooth(method = "lm")+
-  facet_grid(grouped_scale~name, scales = "free")+
-  ggpubr::stat_cor()
-
-resids %>%
-  left_join(sa %>%
-              group_by(MIU_VALVE) %>%
-              summarize(SA = median(SA))) %>%
-  left_join(agb %>%
-              pivot_wider()) %>%
-  select(MIU_VALVE, resid, grouped_scale, SA, SCAM.g.m2) %>%
-  pivot_longer(c(SA, SCAM.g.m2)) %>%
-  ggplot(aes(x = value, y = resid))+
-  geom_point(aes(color = MIU_VALVE))+
-  geom_smooth(method = "lm")+
-  facet_grid(grouped_scale~name, scales = "free")+
-  ggpubr::stat_cor()
+  xlab("value") +
+  ylab("Residual") +
+  geom_smooth(method = "lm") +
+  ggpubr::stat_cor(
+    aes(
+      label =
+        paste0(
+          ..rr.label.., "~`,`~`p=`~",
+          p.adjust(readr::parse_number(..p.label..),
+            n = length(unique(drivers$name)) *
+              length(unique(resids$grouped_scale))
+          )
+        )
+    ),
+    method = "pearson", label.y = 180
+  ) +
+  ggh4x::facet_nested("Wavelet~scale" + grouped_scale ~ Type + name,
+    scales = "free_x", switch = "x",
+    labeller = label_parsed,
+    nest_line = element_line(linewidth = 0.2)
+  ) +
+  theme(
+    strip.placement = "outside",
+    axis.title.x = element_blank()
+  )
 ```
-

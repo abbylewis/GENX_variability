@@ -17,10 +17,10 @@ ch4 <- read_csv(here::here("01_Data", "ch4.csv"))
 
 ```{r}
 ch4 %>%
-  ggplot(aes(x = DateTime, y = Depth_cm))+
+  ggplot(aes(x = DateTime_EST, y = Depth_cm)) +
   geom_line()
 
 ch4 %>%
-  summarize(n_flooded = sum(Depth_cm > 0, na.rm = T)/sum(!is.na(Depth_cm)))
+  summarize(n_flooded = sum(Depth_cm > 0, na.rm = T) / sum(!is.na(Depth_cm)))
 ```
 

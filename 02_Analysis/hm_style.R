@@ -1,10 +1,10 @@
-soil_labs <- read_csv(here::here("01_data", "temp.csv")) %>%
-  mutate(ch = as.numeric(trimws(substr(MIU_VALVE, 5,6)))) %>%
-  select(ch, MIU_VALVE) %>%
+soil_labs <- read_csv(here::here("01_data", "Soil_temp.csv")) %>%
+  mutate(ch = as.numeric(trimws(substr(Chamber, 5, 6)))) %>%
+  select(ch, Chamber) %>%
   arrange(ch) %>%
   distinct()
 
-chamber_labels <- soil_labs$MIU_VALVE
+chamber_labels <- soil_labs$Chamber
 
 # Colorblind friendly pride palette
 # https://www.reddit.com/r/vexillology/comments/v2luae/the_6colour_pride_flag_but_colourblindfriendly/

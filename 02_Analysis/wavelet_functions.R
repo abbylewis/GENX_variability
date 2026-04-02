@@ -1,33 +1,14 @@
-entropy <- function(target) {
-  freq <- table(target) / length(target)
-  # vectorize
-  vec <- as.data.frame(freq)[, 2]
-  # compute entropy
-  -sum(vec * log2(vec))
-}
-
-bin <- function(x, n_breaks) {
-  highest <- quantile(x, 0.99)
-  lowest <- quantile(x, 0.01)
-  findInterval(x, seq(lowest, highest, length.out = n_breaks))
-}
-
-bin_ranked <- function(x, n_breaks) {
-  # Rank values (ties resolved randomly)
-  r <- rank(x, ties.method = "first")
-  bins <- as.numeric(cut(r, breaks = n_breaks, include.lowest = TRUE))
-  return(bins)
-}
-
-make_grid <- function(g) {
-  data.table(
-    DateTime_EST = seq(min(g$DateTime_EST), max(g$DateTime_EST), by = "130 min"),
-    Chamber = g$Chamber[1]
-  )
-}
-
+#' Map over all chambers
+#'
+#' @param treatment Chamber name
+#' @param ch4 Data frame
+#' @param var_name Variable (i.e., driver name or CH4)
+#' @param timestep_s Timestep of analysis
+#'
+#' @returns df with results for all chambers
+#'
 double_map <- function(treatment, ch4, var_name, timestep_s) {
-  dfs <- map(unique(ch4$Chamber),
+  map(treatment,
     analyze_wavelets,
     ch4 = ch4,
     var_name = var_name,
@@ -35,6 +16,15 @@ double_map <- function(treatment, ch4, var_name, timestep_s) {
   ) %>%
     bind_rows()
 }
+
+#' Analyze wavelets
+#'
+#' @param ch4 Data frame
+#' @param treatment Chamber name
+#' @param var_name Variable (i.e., driver name or CH4)
+#' @param timestep_s imestep of analysis
+#'
+#' @returns Data frame with wavelet results for this variable/chamber
 
 analyze_wavelets <- function(ch4, treatment, var_name, timestep_s) {
   # Format data (dealing with irregularly spaced data)
@@ -107,6 +97,12 @@ analyze_wavelets <- function(ch4, treatment, var_name, timestep_s) {
   return(df)
 }
 
+#' Inverse wavele transform by level
+#'
+#' @param wavelet Wavelet object
+#' @param level Level to run inverse transformation
+#'
+#' @returns Reconstruction at this level
 inverse_by_level <- function(wavelet, level) {
   wt_selected <- wavelet
 
@@ -129,6 +125,12 @@ inverse_by_level <- function(wavelet, level) {
   return(reconstructed)
 }
 
+#' Parse time
+#'
+#' @param s_list Vector of scales (seconds)
+#'
+#' @returns Scales parsed into interpretable text
+#'
 parse_time <- function(s_list) {
   out <- numeric(length(s_list))
   for (i in 1:length(s_list)) {

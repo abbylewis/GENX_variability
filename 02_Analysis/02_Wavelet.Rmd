@@ -5,13 +5,24 @@ date: "2024-08-22"
 output: html_document
 ---
 
-Methods from Ari's paper and this one https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2015JG003054
+## Overview
 
-Load data and packages
+This file contains code to run wavelet analyses and assess the effect of warming on each scale of wavelet variability. Code chunks should be run in order.
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+### Table of contents:
 
+-   Step 1: Load data and packages
+-   Step 2: Run wavelet analysis
+-   Step 3: Plot variance by temperature (Figure 5)
+-   Step 4: Visualize reconstructed wavelet outputs (SI)
+-   Step 5: Assess Spearman correlation with drivers (Figure 6)
+-   Step 6: Analyze residuals for each scale of variability (SI)
+
+
+## Step 1: Load data and packages
+
+```{r setup}
+# Load packages
 library(tidyverse)
 library(data.table)
 library(waveslim)
@@ -20,19 +31,24 @@ source("wavelet_functions.R")
 source("make_lm_label.R")
 source("hm_style.R")
 
+# Load data
 ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv"))
 soil_temp <- read_csv(here::here("01_Data", "Soil_temp.csv")) %>%
   rename(time_join = DateTime_EST)
 
+# Combine soil temp with flux data
 ch4 <- ch4 %>%
   mutate(time_join = round_date(DateTime_EST, "15 minutes")) %>%
   left_join(soil_temp) %>%
   mutate(Chamber = factor(Chamber, levels = chamber_labels))
 ```
 
-Run wavelet
+
+## Step 2: Run wavelet analysis
 
 ```{r}
+# SPECIFICATIONS
+# Choose drivers
 drivers <- c(
   "AirTemp_C",
   "SoilTemp_C",
@@ -42,6 +58,7 @@ drivers <- c(
   "Reco_umol_m2_h"
 )
 
+# Set how drivers should be referenced in plots
 driver_labels <- c(
   AirTemp_C = "Air temperature",
   SoilTemp_C = "Soil temperature",
@@ -49,9 +66,10 @@ driver_labels <- c(
   GPP_umol_m2_h = "GPP",
   GPP_unfilled = "GPP",
   Salinity = "Salinity",
-  Reco_umol_m2_h = "Reco_umol_m2_h"
+  Reco_umol_m2_h = "Reco"
 )
 
+# Set driver colors
 driver_colors <- c(
   AirTemp_C = "#E76D66",
   SoilTemp_C = "brown4",
@@ -62,19 +80,23 @@ driver_colors <- c(
   Reco_umol_m2_h = "#264653"
 )
 
-# Apply across all treatments and sites
-grid <- ch4 %>%
-  pivot_longer(
-    cols = c("CH4_umol_m2_h", drivers),
-    # NOTE: I've also tried EVI and PAR but they don't add much
-    names_to = "var_name", values_to = "value"
-  )
-
-dfs <- map(unique(grid$var_name),
+# Run separate wavelet analyses across all treatments and sites
+dfs <- map(c("CH4_umol_m2_h", drivers),
   double_map,
   ch4 = ch4,
   treatment = unique(ch4$Chamber),
   timestep_s = 7800
+) %>%
+  bind_rows()
+
+dfs <- map(
+  c("CH4_umol_m2_h", drivers),
+  ~ double_map(
+    treatment = unique(ch4$Chamber),
+    ch4 = ch4,
+    var_name = .x,
+    timestep_s = 7800
+  )
 ) %>%
   bind_rows()
 
@@ -88,7 +110,7 @@ nas_to_add <- ch4 %>%
   distinct()
 
 # Group wavelet scales into interpretable bins
-discrete_scales <- dfs %>%
+grouped_dfs <- dfs %>%
   mutate(
     name = as.character(name),
     num_value = as.numeric(gsub("[^0-9]", "", name)),
@@ -97,15 +119,20 @@ discrete_scales <- dfs %>%
       grepl("hours", name) & num_value < 10 ~ "Hourly",
       grepl("hours", name) & num_value >= 10 ~ "Daily",
       TRUE ~ "Seasonal"
-    )
+    ),
+    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "-*[0-9]+\\.*[0-9]* ºC")),
+    Temp_C = as.numeric(sub("mb", "0", Temp_C))
   ) %>%
   select(-num_value) %>%
-  group_by(grouped_scale, Chamber, DateTime_EST, var_name) %>%
+  group_by(grouped_scale, Chamber, DateTime_EST, var_name, Temp_C) %>%
   summarize(
     value = sum(value, na.rm = T),
     reconstructed = sum(reconstructed, na.rm = T),
     .groups = "drop"
-  ) %>%
+  )
+
+# Make a wider version
+discrete_scales <- grouped_dfs %>%
   pivot_wider(names_from = var_name, values_from = c(value, reconstructed)) %>%
   rename_with(~ gsub("value_", "", .x)) %>%
   left_join(nas_to_add) %>%
@@ -124,6 +151,7 @@ discrete_scales <- dfs %>%
 # Separate explanatory variables
 discrete_scales_exp <- discrete_scales %>%
   dplyr::select(-matches("CH4_unfilled|CH4_umol_m2_h|GPP_unfilled|recon")) %>%
+  dplyr::select(-Temp_C) %>%
   pivot_longer(
     cols = -c(grouped_scale, Chamber, DateTime_EST),
     names_to = "exp_var", values_to = "exp_var_value"
@@ -132,29 +160,18 @@ discrete_scales_exp <- discrete_scales %>%
   rename(grouped_scale_exp = grouped_scale)
 ```
 
-Plot overall variance
+
+## Step 3: Plot variance by temperature (Figure 5)
 
 ```{r}
-grouped_pct_var <- dfs %>%
-  mutate(
-    name = as.character(name),
-    num_value = as.numeric(gsub("[^0-9]", "", name)),
-    grouped_scale = case_when(
-      grepl("days", name) & num_value < 30 ~ "Weekly",
-      grepl("hours", name) & num_value < 10 ~ "Hourly",
-      grepl("hours", name) & num_value >= 10 ~ "Daily",
-      TRUE ~ "Seasonal"
-    )
-  ) %>%
-  select(-num_value) %>%
-  group_by(grouped_scale, Chamber, DateTime_EST, var_name) %>%
+# Calculate the total variance at each scale (CH4)
+grouped_pct_var <- grouped_dfs %>%
+  filter(var_name == "CH4_umol_m2_h") %>%
+  group_by(grouped_scale, Chamber, var_name, Temp_C) %>%
   summarize(
-    value = sum(value),
+    var = var(value, na.rm = T),
     .groups = "drop"
   ) %>%
-  filter(var_name == "CH4_umol_m2_h") %>%
-  group_by(grouped_scale, Chamber, var_name) %>%
-  summarize(var = var(value, na.rm = T)) %>%
   group_by(Chamber, var_name) %>%
   mutate(tot_var = sum(var, na.rm = T)) %>%
   ungroup() %>%
@@ -164,11 +181,10 @@ grouped_pct_var <- dfs %>%
     ),
     grouped_scale = factor(grouped_scale,
       levels = c("Hourly", "Daily", "Weekly", "Seasonal")
-    ),
-    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "[0-9]+\\.*[0-9]* ºC")),
-    Temp_C = as.numeric(sub("mb", "0", Temp_C))
+    )
   )
 
+# Create labels for plot
 scale_labels <- make_lm_label(
   data = grouped_pct_var %>% mutate(sd = sqrt(var)),
   xvar = "Temp_C",
@@ -176,6 +192,7 @@ scale_labels <- make_lm_label(
   group_var = "grouped_scale"
 )
 
+# Plot total variance at each scale
 scales <- grouped_pct_var %>%
   mutate(sd = sqrt(var)) %>%
   ggplot(aes(x = Temp_C, y = sd)) +
@@ -194,6 +211,7 @@ scales <- grouped_pct_var %>%
   ylab(expression("Standard deviation (µmol" ~ m^-2 ~ h^-1 * ")")) +
   xlab("Temperature treatment (ºC above ambient)")
 
+# Summarize hourly vs seasonal variability
 h_to_s_data <- grouped_pct_var %>%
   group_by(Chamber, Temp_C) %>%
   summarise(
@@ -202,12 +220,14 @@ h_to_s_data <- grouped_pct_var %>%
     .groups = "drop"
   )
 
+# Create labels for hourly/seasonal plot
 h_to_s_label <- make_lm_label(
   data = h_to_s_data,
   xvar = "Temp_C",
   yvar = "h_to_s"
 )
 
+# Plot hourly to seasonal ratio
 h_to_s <- h_to_s_data %>%
   ggplot(aes(x = Temp_C, y = h_to_s)) +
   geom_smooth(method = "lm", color = "black") +
@@ -224,12 +244,14 @@ h_to_s <- h_to_s_data %>%
   ylab("Hourly : seasonal") +
   xlab("Temperature treatment\n(ºC above ambient)")
 
+# Save
 ggsave(
   h_to_s +
     guides(fill = guide_legend(ncol = 2)),
   filename = "../03_Figures/h_to_s.png", width = 4, height = 4
 )
 
+# Plot total variance at each scale
 barchart <- grouped_pct_var %>%
   mutate(
     sd = sqrt(var),
@@ -250,6 +272,7 @@ barchart <- grouped_pct_var %>%
     axis.title.x = element_blank()
   )
 
+# Combine plots
 scales_bar <- patchwork::wrap_plots(
   scales +
     theme(axis.title.x = element_text(vjust = 15)),
@@ -276,10 +299,12 @@ scales_bar <- patchwork::wrap_plots(
     plot.margin = ggplot2::margin(b = 0, t = 0, r = 5, l = 5, unit = "pt")
   )
 
-ggsave(scales_bar, filename = "../03_Figures/wavelet_scales_bar.png", width = 7, height = 4.5)
+# Save
+ggsave(scales_bar, filename = "../03_Figures/Figure 5- Wavelet scales.png", width = 7, height = 4.5)
 ```
 
-Figure showing altered variability (maybe for SI?)
+
+## Step 4: Visualize reconstructed wavelet outputs (SI)
 
 ```{r}
 example <- discrete_scales %>%
@@ -307,7 +332,7 @@ example <- discrete_scales %>%
 
 example
 
-ggsave(example, filename = "../03_Figures/wavelet_example.png", width = 5, height = 3.5)
+ggsave(example, filename = "../03_Figures/SI - Wavelet example.png", width = 5, height = 3.5)
 
 discrete_scales %>%
   mutate(
@@ -336,13 +361,14 @@ discrete_scales %>%
     legend.position = "none"
   )
 
-ggsave(filename = "../03_Figures/Figure 5 - wavelet_comprehensive.png", width = 10, height = 3.5)
+ggsave(filename = "../03_Figures/SI - Wavelet comprehensive.png", width = 10, height = 3.5)
 ```
 
-Spearman
+
+## Step 5: Assess Spearman correlation with drivers (Figure 6)
 
 ```{r}
-# Calculate Spearman correlation
+# Calculate correlations
 spearman_corrs <- discrete_scales %>%
   dplyr::select(c(grouped_scale, Chamber, DateTime_EST, CH4_umol_m2_h)) %>%
   left_join(discrete_scales_exp, relationship = "many-to-many") %>%
@@ -357,65 +383,15 @@ spearman_corrs <- discrete_scales %>%
       use = "complete.obs"
     ),
     spearman_rho2 = spearman_rho^2,
+    abs_rho = abs(spearman_rho),
     .groups = "drop"
-  )
-
-relative_corr <- spearman_corrs %>%
-  filter(
-    grouped_scale == grouped_scale_exp,
-    !exp_var == "evi_predicted"
   ) %>%
-  mutate(
-    abs_rho = abs(spearman_rho)
+  filter(
+    grouped_scale == grouped_scale_exp
   )
 
-# Maybe for SI
-ggplot(
-  relative_corr,
-  aes(
-    x = grouped_scale,
-    y = abs_rho,
-    color = exp_var,
-    group = exp_var
-  )
-) +
-  geom_point(size = 0.5) +
-  geom_line() +
-  facet_wrap(~Chamber) +
-  xlab("Wavelet scale of variation") +
-  ylab("Absolute Spearman correlation (|ρ|)") +
-  scale_color_manual(
-    values = driver_colors[drivers],
-    labels = driver_labels[drivers],
-    name = "Explanatory variable"
-  ) +
-  theme_hm +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-relative_corr %>%
-  ggplot(aes(
-    x = grouped_scale,
-    y = abs_rho,
-    color = exp_var,
-    group = exp_var
-  )) +
-  geom_line(alpha = 0.1, aes(group = paste0(Chamber, exp_var))) +
-  geom_line(
-    data = . %>% group_by(exp_var, grouped_scale) %>%
-      summarize(abs_rho = mean(abs_rho)),
-    linewidth = 1.5
-  ) +
-  xlab("Wavelet scale of variation") +
-  ylab("Spearman correlation |ρ|)") +
-  scale_color_manual(
-    values = driver_colors[drivers],
-    labels = driver_labels[drivers],
-    name = "Explanatory variable"
-  ) +
-  theme_hm +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-spear <- relative_corr %>%
+# Plot correlations
+spear <- spearman_corrs %>%
   ggplot(aes(
     x = grouped_scale,
     y = spearman_rho,
@@ -441,142 +417,13 @@ spear <- relative_corr %>%
   theme_hm +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+# Visualize and save
 spear
-
 ggsave(spear, filename = "../03_Figures/Figure 6 - Spearman correlations.png", width = 3, height = 4)
-
-relative_corr %>%
-  mutate(
-    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "[0-9]+\\.*[0-9]* ºC")),
-    Temp_C = as.numeric(sub("mb", "0", Temp_C))
-  ) %>%
-  ggplot(aes(
-    x = Temp_C, y = spearman_rho,
-    color = Chamber
-  )) +
-  geom_point() +
-  facet_grid(exp_var ~ grouped_scale)
 ```
 
 
-```{r}
-# library(mgcv)
-
-discrete_scales %>%
-  mutate(
-    tod = hour(DateTime_EST) +
-      minute(DateTime_EST) / 60 +
-      second(DateTime_EST) / 3600
-  ) %>%
-  filter(grouped_scale == "Daily") %>%
-  ggplot(aes(x = tod, y = reconstructed_CH4_umol_m2_h, color = Chamber)) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(x, bs = "cc", k = 12),
-    se = FALSE
-  ) +
-  scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, 6)) +
-  scale_color_manual(values = color.gradient) +
-  theme_hm
-
-ch4 %>%
-  mutate(
-    Chamber = factor(Chamber,
-      levels = chamber_labels
-    ),
-    tod = hour(DateTime_EST) +
-      minute(DateTime_EST) / 60 +
-      second(DateTime_EST) / 3600
-  ) %>%
-  ggplot(aes(x = tod, y = CH4_umol_m2_h, color = Chamber)) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(x, bs = "cc", k = 12),
-    se = FALSE
-  ) +
-  scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, 6)) +
-  scale_color_manual(values = color.gradient) +
-  theme_hm
-
-ch4 %>%
-  mutate(
-    Chamber = factor(Chamber,
-      levels = chamber_labels
-    ),
-    tod = hour(DateTime_EST) +
-      minute(DateTime_EST) / 60 +
-      second(DateTime_EST) / 3600,
-    season = case_when(
-      month(DateTime_EST) %in% c(3:5) ~ "Spring",
-      month(DateTime_EST) %in% c(6:8) ~ "Summer",
-      month(DateTime_EST) %in% c(9:11) ~ "Autumn"
-    )
-  ) %>%
-  ggplot(aes(x = tod, y = CH4_umol_m2_h, color = Chamber)) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(x, bs = "cc", k = 12),
-    se = FALSE
-  ) +
-  scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, 6)) +
-  scale_color_manual(values = color.gradient) +
-  theme_hm +
-  facet_wrap(~season)
-
-ch4 %>%
-  mutate(
-    Chamber = factor(Chamber,
-      levels = chamber_labels
-    ),
-    tod = hour(DateTime_EST) +
-      minute(DateTime_EST) / 60 +
-      second(DateTime_EST) / 3600
-  ) %>%
-  ggplot(aes(x = tod, y = GPP_umol_m2_h, color = Chamber)) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(x, bs = "cc", k = 12),
-    se = FALSE
-  ) +
-  scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, 6)) +
-  scale_color_manual(values = color.gradient) +
-  theme_hm
-
-discrete_scales %>%
-  mutate(
-    tod = hour(DateTime_EST) +
-      minute(DateTime_EST) / 60 +
-      second(DateTime_EST) / 3600
-  ) %>%
-  filter(grouped_scale == "Daily") %>%
-  ggplot(aes(x = tod, y = reconstructed_GPP_umol_m2_h, color = Chamber)) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(x, bs = "cc", k = 12),
-    se = FALSE
-  ) +
-  scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, 6)) +
-  scale_color_manual(values = color.gradient) +
-  theme_hm
-
-ch4 %>%
-  mutate(
-    tod = hour(DateTime_EST) +
-      minute(DateTime_EST) / 60 +
-      second(DateTime_EST) / 3600
-  ) %>%
-  ggplot(aes(x = tod, y = CO2_umol_m2_h, color = Chamber)) +
-  geom_smooth(
-    method = "gam",
-    formula = y ~ s(x, bs = "cc", k = 12),
-    se = FALSE
-  ) +
-  scale_x_continuous(limits = c(0, 24), breaks = seq(0, 24, 6)) +
-  scale_color_manual(values = color.gradient) +
-  theme_hm
-```
-
-What drives residuals?
+## Step 6: Analyze residuals for each scale of variability
 
 ```{r}
 # Load driver data
@@ -598,6 +445,7 @@ counts <- read_csv(here::here("01_Data", "SCAM_Stem_counts.csv")) %>%
   mutate(Type = "italic('S. americanus')~stem~traits") %>%
   pivot_longer(-c(Chamber, Type))
 
+# Combine and format drivers
 drivers <- rtk %>%
   bind_rows(agb) %>%
   bind_rows(stems) %>%
@@ -655,6 +503,7 @@ pollock <- for_plot %>%
     axis.title.x = element_blank()
   )
 
+# Save
 ggsave(pollock,
   file = here::here("03_Figures", "SI - Wavelet_residuals.jpg"),
   width = 10, height = 5

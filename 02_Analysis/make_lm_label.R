@@ -1,3 +1,13 @@
+#' Make lm stat labels for plots
+#'
+#' @param data Dataset to use
+#' @param xvar X-axis variable
+#' @param yvar Y-axis variable
+#' @param group_var Grouping variable 1 (if applicable)
+#' @param group_var2 Grouping variable 2 (if applicable)
+#'
+#' @returns Data frame with stats and labels for plot
+
 make_lm_label <- function(data, xvar, yvar, group_var = NULL, group_var2 = NULL) {
   group_vars <- Filter(Negate(is.null), list(group_var, group_var2))
 

@@ -1,5 +1,5 @@
 ---
-title: "Drivers and CH4"
+title: "Wavelet analysis"
 author: "Abby Lewis"
 date: "2024-08-22"
 output: html_document
@@ -46,7 +46,7 @@ ch4 <- ch4 %>%
 
 ## Step 2: Run wavelet analysis
 
-```{r}
+```{r run_wavelets}
 # SPECIFICATIONS
 # Choose drivers
 drivers <- c(
@@ -163,7 +163,7 @@ discrete_scales_exp <- discrete_scales %>%
 
 ## Step 3: Plot variance by temperature (Figure 5)
 
-```{r}
+```{r plot_variance}
 # Calculate the total variance at each scale (CH4)
 grouped_pct_var <- grouped_dfs %>%
   filter(var_name == "CH4_umol_m2_h") %>%
@@ -306,7 +306,7 @@ ggsave(scales_bar, filename = "../03_Figures/Figure 5- Wavelet scales.png", widt
 
 ## Step 4: Visualize reconstructed wavelet outputs (SI)
 
-```{r}
+```{r visualize_reconstruction}
 example <- discrete_scales %>%
   filter(grouped_scale == "Seasonal" |
     month(DateTime_EST) == 7 & day(DateTime_EST) %in% 8:14 & grouped_scale == "Weekly" |
@@ -367,7 +367,7 @@ ggsave(filename = "../03_Figures/SI - Wavelet comprehensive.png", width = 10, he
 
 ## Step 5: Assess Spearman correlation with drivers (Figure 6)
 
-```{r}
+```{r cors}
 # Calculate correlations
 spearman_corrs <- discrete_scales %>%
   dplyr::select(c(grouped_scale, Chamber, DateTime_EST, CH4_umol_m2_h)) %>%
@@ -425,7 +425,7 @@ ggsave(spear, filename = "../03_Figures/Figure 6 - Spearman correlations.png", w
 
 ## Step 6: Analyze residuals for each scale of variability
 
-```{r}
+```{r resids}
 # Load driver data
 rtk <- read_csv(here::here("01_Data", "Chamber_elevation.csv")) %>%
   select(-Latitude_DD, -Longitude_DD) %>%

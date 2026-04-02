@@ -1,9 +1,9 @@
+# Load soil data to format labels in the right order
 soil_labs <- read_csv(here::here("01_data", "Soil_temp.csv")) %>%
   mutate(ch = as.numeric(trimws(substr(Chamber, 5, 6)))) %>%
   select(ch, Chamber) %>%
   arrange(ch) %>%
   distinct()
-
 chamber_labels <- soil_labs$Chamber
 
 # Colorblind friendly pride palette
@@ -11,6 +11,7 @@ chamber_labels <- soil_labs$Chamber
 color.vals <- c("#D60303", "#FF790B", "#EAEE03", "#06D68B", "#017EFF", "blue4")
 color.gradient <- colorRampPalette(rev(color.vals))(12)
 
+# Theme for all plots
 theme_hm <- egg::theme_article() +
   theme(
     panel.grid.major = element_line(color = "grey93", linewidth = 0.5),

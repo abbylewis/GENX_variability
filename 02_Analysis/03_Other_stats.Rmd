@@ -1,25 +1,36 @@
 ---
-title: "Drivers and CH4"
+title: "Other stats"
 author: "Abby Lewis"
 date: "2024-08-22"
 output: html_document
 ---
 
-Load data and packages
+## Overview
+
+This file contains code to calculate relevant statistics for manuscript text.
+
+### Table of contents:
+
+-   Step 1: Load data and packages
+-   Step 2: Calculate inundation percent
+
+
+## Step 1: Load data and packages
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
+# Load packages
 library(tidyverse)
 
+# Load data
 ch4 <- read_csv(here::here("01_Data", "ch4.csv"))
 ```
 
-```{r}
-ch4 %>%
-  ggplot(aes(x = DateTime_EST, y = Depth_cm)) +
-  geom_line()
 
+## Step 2: Calculate inundation percent
+
+```{r}
 ch4 %>%
   summarize(n_flooded = sum(Depth_cm > 0, na.rm = T) / sum(!is.na(Depth_cm)))
 ```

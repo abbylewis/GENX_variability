@@ -12,4 +12,4 @@ Coastal wetland, methane, variability, warming experiment, hot moment, water lev
 
 - [01_Data](01_Data): All data, formatted for analysis.
 - [02_Analysis](02_Analysis): Code files to run all analyses
-- [03_Figures](03_Figures): All figure outputs
+- [03_Figures](03_Figures): Figure outputs

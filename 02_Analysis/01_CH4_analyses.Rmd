@@ -786,33 +786,37 @@ resids <- annual_df %>%
   mutate(resid = lm(value ~ Temp_C)$residuals) %>%
   mutate(HM_variable = replace_values(
     HM_variable,
-    "resid_99" ~ "Top 1%",
-    "resid_998" ~ "Top 0.2%",
-    "resid_95" ~ "Top 5%"
+    "hm_pct_99" ~ "'Top 1%'",
+    "hm_pct_998" ~ "'Top 0.2%'",
+    "hm_pct_95" ~ "'Top 5%'",
+    "sum" ~ "Total"
   )) %>%
   select(-value)
 
-resids %>%
-  left_join(drivers) %>%
+for_plot <- resids %>%
+  left_join(drivers, relationship = "many-to-many")
+
+# Generate labels
+labs <- make_lm_label(for_plot, "value", "resid",
+  group_var = "HM_variable", group_var2 = "name"
+) %>%
+  left_join(for_plot %>%
+    select(name, Type) %>%
+    distinct())
+
+# Plot
+pollock <- for_plot %>%
   ggplot(aes(x = value, y = resid)) +
   geom_point(aes(color = Chamber)) +
   theme_hm +
   scale_color_manual(values = color.gradient, name = "Chamber") +
   xlab("value") +
   ylab("Residual") +
-  geom_smooth(method = "lm") +
-  ggpubr::stat_cor(
-    aes(
-      label =
-        paste0(
-          ..rr.label.., "~`,`~`p=`~",
-          p.adjust(readr::parse_number(..p.label..),
-            n = length(unique(drivers$name)) *
-              length(unique(resids$HM_variable))
-          )
-        )
-    ),
-    method = "pearson", label.y = 1
+  geom_text(
+    aes(x = x_pos, y = y_pos, label = label_simple),
+    hjust = 0, vjust = 1.1,
+    inherit.aes = FALSE,
+    size = 3, data = labs, parse = T
   ) +
   ggh4x::facet_nested("Methane~flux~metric" + HM_variable ~ Type + name,
     scales = "free", switch = "x",
@@ -823,366 +827,9 @@ resids %>%
     strip.placement = "outside",
     axis.title.x = element_blank()
   )
-```
 
-
-```{r}
-resids <- annual_df %>%
-  mutate(
-    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "[0-9]+\\.*[0-9]* ºC")),
-    Temp_C = as.numeric(sub("mb", "0", Temp_C)),
-    hm_pct_998 = hot_sum_998 / sum * 100,
-    hm_pct_99 = hot_sum_99 / sum * 100,
-    hm_pct_95 = hot_sum_95 / sum * 100
-  ) %>%
-  mutate(
-    resid_99 = lm(hm_pct_99 ~ Temp_C)$residuals,
-    resid_95 = lm(hm_pct_95 ~ Temp_C)$residuals,
-    resid_998 = lm(hm_pct_998 ~ Temp_C)$residuals,
-    resid_sum = lm(sum ~ Temp_C)$residuals
-  ) %>%
-  select(Chamber, resid_99, resid_95, resid_998, resid_sum)
-
-rtk <- read_csv(here::here("Raw_Data", "GENX_RTK_11mar2026.csv")) %>%
-  group_by(Chamber_ID) %>%
-  summarize(Elev_m = mean(Elev_m, na.rm = T), .groups = "drop") %>%
-  mutate(Chamber = factor(Chamber_ID,
-    levels = 1:12,
-    labels = chamber_labels2
-  ))
-
-resids %>%
-  left_join(rtk) %>%
-  ggplot(aes(x = Elev_m, y = resid_sum)) +
-  geom_point(aes(color = Chamber)) +
-  theme_hm +
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  xlab("Elevation (m)") +
-  ylab("Residual") +
-  geom_smooth(method = "lm") +
-  ggpubr::stat_cor()
-
-## BIOMASS
-agb <- read_csv("../Raw_data/biomass/2025 aboveground biomass.csv", show_col_types = F) %>%
-  filter(!grepl("Ref", Chamber)) %>%
-  mutate(Chamber = factor(Chamber,
-    levels = 1:12,
-    labels = chamber_labels2
-  )) %>%
-  pivot_longer(cols = c(
-    "SCAM.g.m2", "TotalC4.g.m2", "SPPA.g.m2", "DISP.g.m2",
-    "Other.g.m2", "Above.g.m2"
-  ))
-
-resids %>%
-  left_join(agb) %>%
-  ggplot(aes(x = value, y = resid_99, color = Chamber)) +
-  geom_point() +
-  theme_hm +
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  xlab("Biomass (g/m2)") +
-  ylab("Residual (negative means that hot moments\nare less influential than expected)") +
-  facet_wrap(~name, scales = "free")
-
-bio_label <- make_lm_label(
-  data = resids %>%
-    left_join(agb),
-  xvar = "value",
-  yvar = "resid_99",
-  group_var = "name"
+ggsave(pollock,
+  file = here::here("03_Figures", "SI - HM_residuals.jpg"),
+  width = 10, height = 5
 )
-
-resids %>%
-  pivot_longer(c(resid_99, resid_998, resid_95, resid_sum), names_to = "resid", values_to = "resid_val") %>%
-  mutate(resid = replace_values(
-    resid,
-    "resid_sum" ~ "Total",
-    "resid_99" ~ "Top 1%",
-    "resid_998" ~ "Top 0.2%",
-    "resid_95" ~ "Top 5%"
-  )) %>%
-  left_join(agb, relationship = "many-to-many") %>%
-  filter(!name == "Other.g.m2") %>%
-  group_by(name, resid) %>%
-  mutate(p = summary(lm(resid_val ~ value))$coefficients[2, 4]) %>%
-  ggplot(aes(x = value, y = resid_val)) +
-  geom_smooth(method = "lm", data = . %>% filter(p < 0.05), color = "black") +
-  geom_point(aes(color = Chamber)) +
-  theme_hm +
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  xlab("Biomass (g/m2)") +
-  ylab("Residual (negative means that hot moments\nare less influential than expected)") +
-  facet_grid(resid ~ name, scales = "free") +
-  ggpubr::stat_cor(size = 2)
-
-
-# Stem width/height
-library(readxl)
-files <- list.files("../Raw_data/biomass", full.names = T)
-stem_files <- files[grepl("1-", files)]
-stems <- stem_files %>%
-  map(read_excel, col_types = "text") %>%
-  bind_rows() %>%
-  mutate(
-    chamber_ref = as.numeric(str_extract(Chamber, "[0-9]+")),
-    chamber_ref = factor(chamber_ref,
-      levels = 1:12,
-      labels = 1:12
-    ),
-    `Measurement type` = ifelse(grepl("Ref", Chamber), "Reference", "Chamber"),
-    Total_Height = as.numeric(Total_Height),
-    Width = as.numeric(Width)
-  ) %>%
-  filter(
-    Year == 2025,
-    `Measurement type` == "Chamber"
-  ) %>%
-  mutate(Chamber = factor(Chamber,
-    levels = 1:12,
-    labels = chamber_labels2
-  )) %>%
-  select(Chamber, Total_Height, Width)
-
-# Stem count
-count_files <- files[grepl("2-", files)]
-counts <- count_files %>%
-  map(read_excel, col_types = "text") %>%
-  bind_rows() %>%
-  mutate(
-    chamber_ref = as.numeric(str_extract(Chamber, "[0-9]+")),
-    chamber_ref = factor(chamber_ref,
-      levels = 1:12,
-      labels = 1:12
-    ),
-    `Measurement type` = ifelse(grepl("Ref", Chamber), "Reference", "Chamber"),
-    Count = as.numeric(ifelse(is.na(Count), StemCount, Count))
-  ) %>%
-  select(-StemCount)
-
-stems_long <- stems %>%
-  pivot_longer(c(Total_Height, Width))
-
-resids %>%
-  left_join(stems_long) %>%
-  ggplot(aes(x = value, y = resid_99)) +
-  geom_point(aes(color = Chamber)) +
-  geom_smooth(method = "lm") +
-  theme_hm +
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  facet_wrap(~name, scales = "free")
-
-resids %>%
-  pivot_longer(c(resid_99, resid_998, resid_95), names_to = "resid", values_to = "resid_val") %>%
-  mutate(resid = replace_values(
-    resid,
-    "resid_99" ~ "Top 1%",
-    "resid_998" ~ "Top 0.2%",
-    "resid_95" ~ "Top 5%"
-  )) %>%
-  left_join(
-    stems_long %>%
-      group_by(Chamber, name) %>%
-      summarize(value = median(value)),
-    relationship = "many-to-many"
-  ) %>%
-  ggplot(aes(x = value, y = resid_val)) +
-  geom_point(aes(color = Chamber)) +
-  geom_smooth(method = "lm") +
-  theme_hm +
-  scale_color_manual(values = color.gradient, name = "Chamber") +
-  facet_grid(resid ~ name, scales = "free")
-
-resids %>%
-  left_join(stems_long %>%
-    group_by(Chamber, name) %>%
-    summarize(value = mean(value))) %>%
-  pivot_wider() %>%
-  ggplot(aes(x = Total_Height, y = Width)) +
-  geom_point()
-
-counts <- counts %>%
-  filter(
-    Year == 2025,
-    `Measurement type` == "Chamber"
-  ) %>%
-  mutate(Chamber = factor(Chamber,
-    levels = 1:12,
-    labels = chamber_labels2
-  )) %>%
-  select(Chamber, Count)
-
-resids %>%
-  left_join(counts) %>%
-  ggplot(aes(x = Count, y = resid_99)) +
-  geom_point(aes(color = Chamber)) +
-  geom_smooth(method = "lm") +
-  theme_hm +
-  scale_color_manual(values = color.gradient, name = "Chamber")
-
-resids %>%
-  left_join(stems_long %>%
-    group_by(Chamber, name) %>%
-    summarize(value = median(value))) %>%
-  bind_rows(resids %>%
-    left_join(counts %>%
-      pivot_longer(Count))) %>%
-  left_join(rtk) %>%
-  ggplot(aes(x = Elev_m, y = value)) +
-  geom_point(aes(color = Chamber)) +
-  geom_smooth(method = "lm") +
-  facet_wrap(~name, scales = "free_y")
-
-sa <- stems %>%
-  left_join(counts) %>%
-  mutate(SA = 3 * Width * Total_Height * Count)
-
-resids %>%
-  pivot_longer(c(resid_99, resid_998, resid_95), names_to = "resid", values_to = "resid_val") %>%
-  mutate(resid = replace_values(
-    resid,
-    "resid_99" ~ "Top 1%",
-    "resid_998" ~ "Top 0.2%",
-    "resid_95" ~ "Top 5%"
-  )) %>%
-  left_join(stems_long %>%
-    group_by(Chamber, name) %>%
-    summarize(value = median(value)) %>%
-    bind_rows(counts %>%
-      pivot_longer(Count))) %>%
-  pivot_wider() %>%
-  mutate(SA = 3 * Width * Total_Height * Count) %>%
-  left_join(agb %>%
-    pivot_wider()) %>%
-  select(Chamber, resid, resid_val, SA, SCAM.g.m2) %>%
-  pivot_longer(c(SA, SCAM.g.m2)) %>%
-  ggplot(aes(x = value, y = resid_val)) +
-  geom_point(aes(color = Chamber)) +
-  geom_smooth(method = "lm") +
-  facet_grid(resid ~ name, scales = "free") +
-  ggpubr::stat_cor()
-
-resids %>%
-  pivot_longer(c(resid_99, resid_998, resid_95, resid_sum), names_to = "resid", values_to = "resid_val") %>%
-  mutate(resid = replace_values(
-    resid,
-    "resid_99" ~ "Top 1%",
-    "resid_998" ~ "Top 0.2%",
-    "resid_95" ~ "Top 5%"
-  )) %>%
-  left_join(sa %>%
-    group_by(Chamber) %>%
-    summarize(SA = median(SA))) %>%
-  left_join(agb %>%
-    pivot_wider()) %>%
-  select(Chamber, resid, resid_val, SA, SCAM.g.m2) %>%
-  pivot_longer(c(SA, SCAM.g.m2)) %>%
-  ggplot(aes(x = value, y = resid_val)) +
-  geom_point(aes(color = Chamber)) +
-  geom_smooth(method = "lm") +
-  facet_grid(resid ~ name, scales = "free") +
-  ggpubr::stat_cor()
 ```
-
-```{r}
-hot_moments <- hm_df %>%
-  mutate(season = case_when(
-    month(DateTime_EST) %in% c(3:5) ~ "Spring",
-    month(DateTime_EST) %in% c(6:8) ~ "Summer",
-    month(DateTime_EST) %in% c(9:11) ~ "Autumn"
-  )) %>%
-  group_by(Chamber, season) %>%
-  mutate(
-    hot_moment_quant_998 = ifelse(CH4_umol_m2_h >=
-      quantile(CH4_umol_m2_h,
-        probs = 0.998, na.rm = TRUE
-      ),
-    "hot", "not"
-    ),
-    hot_moment_quant_99 = ifelse(CH4_umol_m2_h >=
-      quantile(CH4_umol_m2_h,
-        probs = 0.99, na.rm = TRUE
-      ),
-    "hot", "not"
-    ),
-    hot_moment_quant_95 = ifelse(CH4_umol_m2_h >=
-      quantile(CH4_umol_m2_h,
-        probs = 0.95, na.rm = TRUE
-      ),
-    "hot", "not"
-    )
-  ) %>%
-  summarize(
-    n = sum(!is.na(CH4_umol_m2_h)),
-    sum = sum(CH4_umol_m2_h, na.rm = T) /
-      n / 1000 / 1000 * (n_days * 24), # Convert hourly fluxes to growing season
-    hot_sum_998 = sum(CH4_umol_m2_h[hot_moment_quant_998 == "hot"], na.rm = T) /
-      n / 1000 / 1000 * (n_days * 24),
-    hot_sum_99 = sum(CH4_umol_m2_h[hot_moment_quant_99 == "hot"], na.rm = T) /
-      n / 1000 / 1000 * (n_days * 24),
-    hot_sum_95 = sum(CH4_umol_m2_h[hot_moment_quant_95 == "hot"], na.rm = T) /
-      n / 1000 / 1000 * (n_days * 24),
-    min = min(DateTime_EST),
-    max = max(DateTime_EST)
-  )
-
-top_pct <- hot_moments %>%
-  mutate(
-    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "[0-9]+\\.*[0-9]* ºC")),
-    Temp_C = as.numeric(sub("mb", "0", Temp_C)),
-    hm_pct_998 = hot_sum_998 / sum * 100,
-    hm_pct_99 = hot_sum_99 / sum * 100,
-    hm_pct_95 = hot_sum_95 / sum * 100
-  ) %>%
-  select(season, Temp_C, Chamber, hm_pct_998, hm_pct_99, hm_pct_95) %>%
-  pivot_longer(c(hm_pct_95, hm_pct_99, hm_pct_998)) %>%
-  mutate(
-    name = factor(
-      name,
-      levels = c("hm_pct_95", "hm_pct_99", "hm_pct_998"),
-      labels = c(
-        "Top 5% of measurements",
-        "Top 1% of measurements",
-        "Top 0.2% of measurements"
-      )
-    )
-  ) %>%
-  group_by(name, season) %>%
-  mutate(
-    model  = list(lm(value ~ Temp_C)),
-    p      = summary(model[[1]])$coefficients[2, 4],
-    r2     = summary(model[[1]])$r.squared,
-    median = median(value)
-  ) %>%
-  ungroup()
-
-top_pct_fig <- top_pct %>%
-  ggplot(aes(x = Temp_C, y = value)) +
-  geom_smooth(
-    method = "lm", color = "black",
-    data = ~ subset(.x, p < 0.05)
-  ) +
-  geom_smooth(
-    method = "lm", color = "grey70",
-    data = ~ subset(.x, p >= 0.05),
-    lty = "51", alpha = 0.15
-  ) +
-  geom_point(aes(fill = Chamber),
-    color = "black", shape = 21,
-    stroke = 0.5, size = 2
-  ) +
-  geom_text(
-    data = label_df,
-    aes(x = -Inf, y = Inf, label = label),
-    hjust = 0, vjust = 1.1,
-    inherit.aes = FALSE, size = 3
-  ) +
-  scale_fill_manual(values = color.gradient, name = "Chamber") +
-  theme_hm +
-  ylab(expression(atop("Percent of growing season", "emissions"))) +
-  xlab("Temperature treatment (ºC above ambient)") +
-  guides(fill = guide_legend(ncol = 4)) +
-  facet_grid(name ~ season, scales = "free_y")
-
-top_pct_fig
-```
-

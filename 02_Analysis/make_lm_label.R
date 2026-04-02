@@ -1,44 +1,48 @@
-make_lm_label <- function(data, xvar, yvar, group_var = NULL) {
-  if (!is.null(group_var)) {
-    data %>%
-      group_by(.data[[group_var]]) %>%
-      summarise(
-        model = list(lm(reformulate(xvar, yvar), data = cur_data())),
-        intercept = coef(model[[1]])[1],
-        slope = coef(model[[1]])[2],
-        r2 = summary(model[[1]])$r.squared,
-        p = summary(model[[1]])$coefficients[2, 4],
-        x_pos = min(.data[[xvar]], na.rm = TRUE),
-        y_pos = (max(.data[[yvar]], na.rm = TRUE) - min(.data[[yvar]], na.rm = TRUE)) * 0.95,
-        .groups = "drop"
-      ) %>%
-      mutate(
-        label = paste0(
-          "  y = ",
-          round(intercept, 2),
-          ifelse(slope >= 0, " + ", " - "),
-          round(abs(slope), 2), "x",
-          "\n  R² = ", round(r2, 2),
-          "\n  p ", ifelse(p < 0.001, "< 0.001", paste0("= ", round(p, 3)))
-        )
-      )
-  } else {
-    model <- lm(reformulate(xvar, yvar), data = data)
+make_lm_label <- function(data, xvar, yvar, group_var = NULL, group_var2 = NULL) {
+  group_vars <- Filter(Negate(is.null), list(group_var, group_var2))
 
-    data.frame(
-      x_pos = min(data[[xvar]], na.rm = TRUE),
-      y_pos = (max(data[[yvar]], na.rm = TRUE) - min(data[[yvar]], na.rm = TRUE)) * 0.95,
+  # Number of comparisons (for Bonferroni correction)
+  n_comp <- if (length(group_vars) > 0) {
+    prod(sapply(group_vars, function(g) length(unique(data[[g]]))))
+  } else {
+    1
+  }
+
+  data %>%
+    {
+      if (length(group_vars) > 0) {
+        dplyr::group_by(., !!!rlang::syms(group_vars))
+      } else {
+        .
+      }
+    } %>%
+    dplyr::summarise(
+      model = list(lm(reformulate(xvar, yvar), data = cur_data())),
+      intercept = coef(model[[1]])[1],
+      slope = coef(model[[1]])[2],
+      r2 = summary(model[[1]])$r.squared,
+      p = summary(model[[1]])$coefficients[2, 4],
+      p_adj = p.adjust(p, n = n_comp, method = "bonferroni"),
+      x_pos = min(.data[[xvar]], na.rm = TRUE),
+      y_pos = (max(.data[[yvar]], na.rm = TRUE) -
+        min(.data[[yvar]], na.rm = TRUE)) * 0.95 +
+        min(.data[[yvar]], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
       label = paste0(
         "  y = ",
-        round(coef(model)[1], 2),
-        ifelse(coef(model)[2] >= 0, " + ", " - "),
-        round(abs(coef(model)[2]), 2), "x",
-        "\n  R² = ", round(summary(model)$r.squared, 2),
-        "\n  p ", ifelse(summary(model)$coefficients[2, 4] < 0.001,
-          "< 0.001",
-          paste0("= ", round(summary(model)$coefficients[2, 4], 3))
-        )
+        round(intercept, 2),
+        ifelse(slope >= 0, " + ", " - "),
+        round(abs(slope), 2), "x",
+        "\n  R² = ", round(r2, 2),
+        "\n  p ", ifelse(p < 0.001, "< 0.001", paste0("= ", round(p, 3)))
+      ),
+      label_simple = paste0(
+        "R^2~'= ", round(r2, 2),
+        ";'~p[adj]~'",
+        ifelse(p_adj < 0.01, "< 0.01", paste0("= ", round(p_adj, 2))),
+        "'"
       )
     )
-  }
 }

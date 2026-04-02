@@ -576,7 +576,7 @@ ch4 %>%
   theme_hm
 ```
 
-Resids
+What drives residuals?
 
 ```{r}
 # Load driver data
@@ -619,30 +619,34 @@ resids <- grouped_pct_var %>%
   mutate(resid = lm(var ~ Temp_C)$residuals) %>%
   select(grouped_scale, resid, Chamber)
 
-resids %>%
-  left_join(drivers) %>%
+# Combine
+for_plot <- resids %>%
+  left_join(drivers, relationship = "many-to-many")
+
+# Generate labels
+labs <- make_lm_label(for_plot, "value", "resid",
+  group_var = "grouped_scale", group_var2 = "name"
+) %>%
+  left_join(for_plot %>%
+    select(name, Type) %>%
+    distinct())
+
+# Plot
+pollock <- for_plot %>%
   ggplot(aes(x = value, y = resid)) +
   geom_point(aes(color = Chamber)) +
   theme_hm +
   scale_color_manual(values = color.gradient, name = "Chamber") +
   xlab("value") +
   ylab("Residual") +
-  geom_smooth(method = "lm") +
-  ggpubr::stat_cor(
-    aes(
-      label =
-        paste0(
-          ..rr.label.., "~`,`~`p=`~",
-          p.adjust(readr::parse_number(..p.label..),
-            n = length(unique(drivers$name)) *
-              length(unique(resids$grouped_scale))
-          )
-        )
-    ),
-    method = "pearson", label.y = 180
+  geom_text(
+    aes(x = x_pos, y = y_pos, label = label_simple),
+    hjust = 0, vjust = 1.1,
+    inherit.aes = FALSE,
+    size = 3, data = labs, parse = T
   ) +
-  ggh4x::facet_nested("Wavelet~scale" + grouped_scale ~ Type + name,
-    scales = "free_x", switch = "x",
+  ggh4x::facet_nested("Methane~flux~metric" + grouped_scale ~ Type + name,
+    scales = "free", switch = "x",
     labeller = label_parsed,
     nest_line = element_line(linewidth = 0.2)
   ) +
@@ -650,4 +654,9 @@ resids %>%
     strip.placement = "outside",
     axis.title.x = element_blank()
   )
+
+ggsave(pollock,
+  file = here::here("03_Figures", "SI - Wavelet_residuals.jpg"),
+  width = 10, height = 5
+)
 ```

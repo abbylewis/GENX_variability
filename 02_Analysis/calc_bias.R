@@ -44,7 +44,7 @@ calc_bias <- function(interval, only_time = T) {
       mutate(time = "daytime")
     
     out_wl <- df %>%
-      filter(Depth_cm <= 0) %>%
+      filter(Depth_cm <= 1) %>%
       group_by(get(bin_dur), Chamber) %>%
       reframe(
         n = n(),

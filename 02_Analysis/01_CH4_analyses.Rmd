@@ -16,7 +16,8 @@ This file contains code to analyze and visualize the effects of soil warming on 
 -   Step 3: Plot data summary (Figure 2)
 -   Step 4: Analyze the contribution of extreme fluxes (Figure 3)
 -   Step 5: Simulate low-frequency sampling to assess bias (Figure 4)
--   Step 6: Analyze residuals for annual and extreme fluxes
+-   Step 6: Daytime and WL sampling biases (SI)
+-   Step 7: Analyze residuals for annual and extreme fluxes
 
 
 ## Step 1: Load data and packages
@@ -30,13 +31,14 @@ source("calc_bias.R")
 
 # Load data
 ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv")) %>%
-  mutate(
-    Chamber = factor(Chamber, levels = chamber_labels),
-    date = as_date(DateTime_EST)
+  mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST"),
+         Chamber = factor(Chamber, levels = chamber_labels),
+         date = as_date(DateTime_EST)
   )
 
 soil_temp <- read_csv(here::here("01_Data", "Soil_temp.csv")) %>%
-  mutate(Chamber = factor(Chamber, levels = chamber_labels))
+  mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST"),
+         Chamber = factor(Chamber, levels = chamber_labels))
 ```
 
 
@@ -219,7 +221,7 @@ comb <- patchwork::wrap_plots(
 
 # Visualize and save
 comb
-ggsave("../03_Figures/Figure 2 - Data drivers.jpg", dpi = 300, width = 7, height = 5)
+ggsave("../03_Figures/Manuscript/Figure 2 - Data drivers.jpg", dpi = 300, width = 7, height = 5)
 
 # Make a smaller version for presentations
 patchwork::wrap_plots(
@@ -250,7 +252,7 @@ patchwork::wrap_plots(
   ) &
   theme(plot.tag = element_text(face = "bold"))
 
-ggsave("../03_Figures/Figure 2 - Data drivers pres.jpg", dpi = 300, width = 7, height = 5)
+ggsave("../03_Figures/Presentation/Figure 2 - Data drivers pres.jpg", dpi = 300, width = 7, height = 5)
 ```
 
 
@@ -420,7 +422,7 @@ comb <- ggpubr::ggarrange(annual + theme(legend.position = "right"),
 # Save
 ggsave(
   comb,
-  filename = "../03_Figures/Figure 3 - Top percent.jpg",
+  filename = "../03_Figures/Manuscript/Figure 3 - Top percent.jpg",
   dpi = 300, width = 6, height = 5
 )
 
@@ -452,7 +454,7 @@ top_pct_pres <- top_pct %>%
 # Save presentation version
 ggsave(
   top_pct_pres,
-  filename = "../03_Figures/Figure 3 - Top percent pres.jpg",
+  filename = "../03_Figures/Presentation/Figure 3 - Top percent pres.jpg",
   dpi = 300, width = 4, height = 5
 )
 
@@ -467,7 +469,7 @@ comb_pres <- patchwork::wrap_plots(
 
 ggsave(
   comb_pres,
-  filename = "../03_Figures/Figure 3 - Top percent pres comb.jpg",
+  filename = "../03_Figures/Presentation/Figure 3 - Top percent pres comb.jpg",
   dpi = 300, width = 8, height = 4
 )
 ```
@@ -653,13 +655,100 @@ with_dist2 <- patchwork::wrap_plots(
 # Visualize and save
 with_dist2
 ggsave(with_dist2,
-  filename = "../03_Figures/Figure 4 - Simulations all.jpg",
+  filename = "../03_Figures/Manuscript/Figure 4 - Simulations all.jpg",
   dpi = 300, width = 6, height = 5
 )
 ```
 
 
-## Step 6: Analyze residuals for annual and extreme fluxes
+## Step 6: Daytime and WL sampling biases (SI)
+
+```{r fig_4}
+# Set simulation specs
+reps <- 10000
+set.seed(4700)
+intervals <- c("monthly")
+
+# Add labels for day, month, week, and fortnight
+df <- ch4 %>%
+  mutate(
+    day = yday(date),
+    month = month(date),
+    week = week(date),
+    fortnight = week %/% 2,
+    DateTime_local = with_tz(DateTime_EST, tzone = "America/New_York"))
+
+# Run simulations
+df_out <- calc_bias("monthly", only_time = F) %>% # See calc_bias.R
+  bind_rows()
+
+# Summarize outputs
+to_plot <- df_out %>%
+  group_by(Chamber, rep, interval, time) %>%
+  summarize(
+    mean_hourly = sum(flux * n / sum(n), na.rm = TRUE),
+    tot_hourly = mean_hourly / 1e6 * (n_days * 24), # Growing season total (simulated)
+    .groups = "drop"
+  ) %>%
+  left_join(
+    hot_moments %>% rename(tot_real = annual_flux), # Add totals (calculated high-frequency)
+    by = "Chamber"
+  ) %>%
+  mutate(percent_bias = tot_hourly / tot_real * 100 - 100)
+
+# Calculate medians
+to_plot_median <- to_plot %>%
+  group_by(Chamber, interval, time, Temp_C) %>%
+  summarize(
+    median_bias = median(percent_bias, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Stats
+to_plot_median %>%
+  group_by(interval, time) %>%
+  summarize(median = median(median_bias))
+
+# Plot medians by time interval
+sims_multiple_biases <- to_plot_median %>%
+  mutate(
+    time = factor(time, 
+                  levels = c("all", "daytime", "waterlevel"),
+                  labels = c("Fully random\nsampling times", 
+                             "Only daytime\nsampling", 
+                             "Only sampling\nwhen water level\nis at or below the\nmarsh surface")),
+  ) %>%
+  ggplot(aes(x = time, y = median_bias)) +
+  geom_hline(yintercept = 0, color = "grey85") +
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(aes(fill = Chamber), shape = 21, size = 2, stroke = 0.5, width = 0.2) +
+  scale_fill_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  scale_color_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  coord_cartesian(xlim = c(0.5, 3.5), expand = c(left = F, right = F))+
+  theme_hm +
+  theme(legend.title.position = "top") +
+  ylab("Bias of monthly sampling (%)") +
+  xlab("Simulated sampling bias") +
+  guides(fill = guide_legend(ncol = 2)) +
+  theme(axis.title.x = element_blank(),
+        legend.box.margin = margin(t = -25))
+
+sims_multiple_biases
+
+ggsave(sims_multiple_biases,
+  filename = "../03_Figures/SI/SI - Multiple biases.jpg",
+  dpi = 300, width = 3.5, height = 4
+)
+```
+
+
+## Step 7: Analyze residuals for annual and extreme fluxes
 
 ```{r resids}
 # Load driver data
@@ -717,7 +806,8 @@ resids <- hot_moments %>%
   select(-value)
 
 for_plot <- resids %>%
-  left_join(drivers, relationship = "many-to-many")
+  left_join(drivers, relationship = "many-to-many") %>%
+  mutate(Chamber = factor(Chamber, levels = chamber_labels))
 
 # Generate labels
 labs <- make_lm_label(for_plot, "value", "resid",
@@ -753,7 +843,7 @@ pollock <- for_plot %>%
 
 # Save
 ggsave(pollock,
-  file = here::here("03_Figures", "SI - HM_residuals.jpg"),
+  file = here::here("03_Figures", "SI", "SI - HM_residuals.jpg"),
   width = 10, height = 5
 )
 ```

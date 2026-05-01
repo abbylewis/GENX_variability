@@ -4,7 +4,7 @@
 #'
 #' @returns Data frame with metrics describing the bias of manual sampling
 #'
-calc_bias <- function(interval) {
+calc_bias <- function(interval, only_time = T) {
   # Parse interval name
   samples_per_bin <- case_when(grepl("twice", interval) ~ 2,
     .default = 1
@@ -28,21 +28,39 @@ calc_bias <- function(interval) {
     ) %>%
     mutate(time = "all")
 
-  # out_daytime <- df %>%
-  #  filter(hour(DateTime_EST) %in% c(9:17)) %>%
-  #  group_by(get(bin_dur), Chamber) %>%
-  #  reframe(
-  #    n = n(),
-  #    rep = seq_len(reps),
-  #    flux = replicate(
-  #      reps,
-  #      mean(sample(CH4_umol_m2_h, samples_per_bin))
-  #    ),
-  #    interval = interval
-  #  ) %>%
-  #  mutate(time = "daytime")
-
-  # out <- bind_rows(out_all, out_daytime)
+  if(!only_time){
+    out_daytime <- df %>%
+      filter(hour(DateTime_local) %in% c(9:17)) %>%
+      group_by(get(bin_dur), Chamber) %>%
+      reframe(
+        n = n(),
+        rep = seq_len(reps),
+        flux = replicate(
+          reps,
+          mean(sample(CH4_umol_m2_h, samples_per_bin))
+        ),
+        interval = interval
+      ) %>%
+      mutate(time = "daytime")
+    
+    out_wl <- df %>%
+      filter(Depth_cm <= 0) %>%
+      group_by(get(bin_dur), Chamber) %>%
+      reframe(
+        n = n(),
+        rep = seq_len(reps),
+        flux = replicate(
+          reps,
+          mean(sample(CH4_umol_m2_h, samples_per_bin))
+        ),
+        interval = interval
+      ) %>%
+      mutate(time = "waterlevel")
+    
+    out <- bind_rows(out_all, out_daytime, out_wl)
+    
+    return(out)
+  }
 
   return(out_all)
 }

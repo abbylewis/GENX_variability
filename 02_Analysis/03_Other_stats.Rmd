@@ -24,7 +24,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 
 # Load data
-ch4 <- read_csv(here::here("01_Data", "ch4.csv"))
+ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv"))
 ```
 
 

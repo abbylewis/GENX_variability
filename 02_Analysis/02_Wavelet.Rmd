@@ -32,15 +32,17 @@ source("make_lm_label.R")
 source("hm_style.R")
 
 # Load data
-ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv"))
+ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv")) %>%
+  mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST"))
 soil_temp <- read_csv(here::here("01_Data", "Soil_temp.csv")) %>%
+  mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST")) %>%
   rename(time_join = DateTime_EST)
 
 # Combine soil temp with flux data
 ch4 <- ch4 %>%
   mutate(time_join = round_date(DateTime_EST, "15 minutes")) %>%
   left_join(soil_temp) %>%
-  mutate(Chamber = factor(Chamber, levels = chamber_labels))
+  mutate(Chamber = factor(Chamber, levels = chamber_labels)) 
 ```
 
 
@@ -211,46 +213,6 @@ scales <- grouped_pct_var %>%
   ylab(expression("Standard deviation (µmol" ~ m^-2 ~ h^-1 * ")")) +
   xlab("Temperature treatment (ºC above ambient)")
 
-# Summarize hourly vs seasonal variability
-h_to_s_data <- grouped_pct_var %>%
-  group_by(Chamber, Temp_C) %>%
-  summarise(
-    h_to_s = sqrt(var[grouped_scale == "Hourly"]) /
-      sqrt(var[grouped_scale == "Seasonal"]),
-    .groups = "drop"
-  )
-
-# Create labels for hourly/seasonal plot
-h_to_s_label <- make_lm_label(
-  data = h_to_s_data,
-  xvar = "Temp_C",
-  yvar = "h_to_s"
-)
-
-# Plot hourly to seasonal ratio
-h_to_s <- h_to_s_data %>%
-  ggplot(aes(x = Temp_C, y = h_to_s)) +
-  geom_smooth(method = "lm", color = "black") +
-  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
-  geom_text(
-    aes(x = -Inf, y = Inf, label = label),
-    hjust = 0, vjust = 1.1,
-    inherit.aes = FALSE,
-    size = 3,
-    data = h_to_s_label
-  ) +
-  scale_fill_manual(values = color.gradient, name = "Chamber") +
-  theme_hm +
-  ylab("Hourly : seasonal") +
-  xlab("Temperature treatment\n(ºC above ambient)")
-
-# Save
-ggsave(
-  h_to_s +
-    guides(fill = guide_legend(ncol = 2)),
-  filename = "../03_Figures/h_to_s.png", width = 4, height = 4
-)
-
 # Plot total variance at each scale
 barchart <- grouped_pct_var %>%
   mutate(
@@ -300,7 +262,7 @@ scales_bar <- patchwork::wrap_plots(
   )
 
 # Save
-ggsave(scales_bar, filename = "../03_Figures/Figure 5- Wavelet scales.png", width = 7, height = 4.5)
+ggsave(scales_bar, filename = "../03_Figures/Manuscript/Figure 5- Wavelet scales.png", width = 7, height = 4.5)
 ```
 
 
@@ -332,7 +294,7 @@ example <- discrete_scales %>%
 
 example
 
-ggsave(example, filename = "../03_Figures/SI - Wavelet example.png", width = 5, height = 3.5)
+ggsave(example, filename = "../03_Figures/SI/SI - Wavelet example.png", width = 5, height = 3.5)
 
 discrete_scales %>%
   mutate(
@@ -361,7 +323,7 @@ discrete_scales %>%
     legend.position = "none"
   )
 
-ggsave(filename = "../03_Figures/SI - Wavelet comprehensive.png", width = 10, height = 3.5)
+ggsave(filename = "../03_Figures/SI/SI - Wavelet comprehensive.png", width = 10, height = 3.5)
 ```
 
 
@@ -419,7 +381,7 @@ spear <- spearman_corrs %>%
 
 # Visualize and save
 spear
-ggsave(spear, filename = "../03_Figures/Figure 6 - Spearman correlations.png", width = 3, height = 4)
+ggsave(spear, filename = "../03_Figures/Manuscript/Figure 6 - Spearman correlations.png", width = 3, height = 4)
 ```
 
 
@@ -469,7 +431,8 @@ resids <- grouped_pct_var %>%
 
 # Combine
 for_plot <- resids %>%
-  left_join(drivers, relationship = "many-to-many")
+  left_join(drivers, relationship = "many-to-many") %>%
+  mutate(Chamber = factor(Chamber, levels = chamber_labels))
 
 # Generate labels
 labs <- make_lm_label(for_plot, "value", "resid",
@@ -505,7 +468,7 @@ pollock <- for_plot %>%
 
 # Save
 ggsave(pollock,
-  file = here::here("03_Figures", "SI - Wavelet_residuals.jpg"),
+  file = here::here("03_Figures", "SI/SI - Wavelet_residuals.jpg"),
   width = 10, height = 5
 )
 ```

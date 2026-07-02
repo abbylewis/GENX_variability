@@ -33,5 +33,10 @@ ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.
 ```{r}
 ch4 %>%
   summarize(n_flooded = sum(Depth_cm > 0, na.rm = T) / sum(!is.na(Depth_cm)))
+
+ch4 %>%
+  summarize(median_sal = median(Salinity, na.rm = T), 
+            min_sal = min(Salinity, na.rm = T), 
+            max_sal = max(Salinity, na.rm = T))
 ```
 

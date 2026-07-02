@@ -25,3 +25,12 @@ theme_hm <- egg::theme_article() +
     legend.justification = "left",
     legend.location = "plot"
   )
+
+# Themes for Fig 2
+panel_theme <- theme(
+  plot.margin = margin(0.1, 1, 0.1, 1, unit = "mm")
+)
+top_theme <- theme(
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()
+)

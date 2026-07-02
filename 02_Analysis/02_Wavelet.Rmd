@@ -38,6 +38,11 @@ soil_temp <- read_csv(here::here("01_Data", "Soil_temp.csv")) %>%
   mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST")) %>%
   rename(time_join = DateTime_EST)
 
+ch4_sums <- ch4 %>%
+  mutate(Chamber = factor(Chamber, levels = chamber_labels))%>%
+  group_by(Chamber) %>%
+  summarize(median = mean(CH4_umol_m2_h, na.rm = T))
+
 # Combine soil temp with flux data
 ch4 <- ch4 %>%
   mutate(time_join = round_date(DateTime_EST, "15 minutes")) %>%
@@ -73,9 +78,9 @@ driver_labels <- c(
 
 # Set driver colors
 driver_colors <- c(
-  AirTemp_C = "#E76D66",
-  SoilTemp_C = "brown4",
-  Depth_cm = "#2176AB",
+  AirTemp_C = "#ff8b85",
+  SoilTemp_C = "#854301",
+  Depth_cm = "#52abe3",
   GPP_umol_m2_h = "#3BAA5D",
   GPP_unfilled = "#3BAA5D",
   Salinity = "#6A4C93",
@@ -213,7 +218,38 @@ scales <- grouped_pct_var %>%
   ylab(expression("Standard deviation (µmol" ~ m^-2 ~ h^-1 * ")")) +
   xlab("Temperature treatment (ºC above ambient)")
 
-# Plot total variance at each scale
+# Plot normalized variance at each scale
+# Create labels for plot
+norm_labels <- make_lm_label(
+  data = grouped_pct_var %>%
+    left_join(ch4_sums) %>%
+    mutate(sd = sqrt(var),
+           norm = sd/median),
+  xvar = "Temp_C",
+  yvar = "norm",
+  group_var = "grouped_scale"
+)
+norm <- grouped_pct_var %>%
+  left_join(ch4_sums) %>%
+  mutate(sd = sqrt(var),
+         norm = sd/median) %>%
+  ggplot(aes(x = Temp_C, y = norm)) +
+  geom_smooth(method = "lm", color = "black") +
+  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
+  geom_text(
+    aes(x = -Inf, y = Inf, label = label),
+    hjust = 0, vjust = 1.1,
+    inherit.aes = FALSE,
+    size = 3,
+    data = norm_labels
+  ) +
+  scale_fill_manual(values = color.gradient, name = "Chamber") +
+  facet_wrap(~grouped_scale) +
+  theme_hm +
+  ylab("Normalized standard deviation") +
+  xlab("Temperature treatment (ºC above ambient)")
+
+# Plot proportional variance at each scale
 barchart <- grouped_pct_var %>%
   mutate(
     sd = sqrt(var),
@@ -225,7 +261,7 @@ barchart <- grouped_pct_var %>%
   geom_col(color = "black", linewidth = 0.2, width = 0.8) +
   theme_hm +
   scale_fill_manual(
-    values = c("grey95", "grey80", "grey40", "grey15"),
+    values = c("grey93", "grey80", "grey40", "grey15"),
     name = "Scale"
   ) +
   ylab(expression("Proportion of total variance")) +
@@ -245,11 +281,12 @@ scales_bar <- patchwork::wrap_plots(
       plot.background = element_rect(fill = NULL),
       axis.text.x = element_text(
         size = 8,
-        margin = ggplot2::margin(b = 0, unit = "pt")
+        margin = ggplot2::margin(t = 2, b = 0, unit = "pt")
       )
     ),
   guides = "collect", widths = c(1.3, 1)
 ) +
+  coord_cartesian(expand = F) +
   patchwork::plot_annotation(tag_levels = "a") &
   theme(
     plot.tag = element_text(face = "bold", size = 14),
@@ -324,6 +361,8 @@ discrete_scales %>%
   )
 
 ggsave(filename = "../03_Figures/SI/SI - Wavelet comprehensive.png", width = 10, height = 3.5)
+library(lme4)
+lmer()
 ```
 
 
@@ -382,6 +421,30 @@ spear <- spearman_corrs %>%
 # Visualize and save
 spear
 ggsave(spear, filename = "../03_Figures/Manuscript/Figure 6 - Spearman correlations.png", width = 3, height = 4)
+
+spear_sep <- spearman_corrs %>%
+  ggplot(aes(
+    x = grouped_scale,
+    y = spearman_rho,
+    color = exp_var,
+    group = exp_var
+  )) +
+  geom_hline(color = "grey50", yintercept = 0) +
+  geom_line(aes(group = paste0(Chamber, exp_var))) +
+  scale_x_discrete(expand = c(0, 0.4)) +
+  xlab("Wavelet scale of variation") +
+  ylab("Spearman correlation (ρ)") +
+  scale_color_manual(
+    values = driver_colors[drivers],
+    labels = driver_labels[drivers],
+    name = "Explanatory variable"
+  ) +
+  facet_wrap(~Chamber) +
+  guides(color = guide_legend(ncol = 2)) +
+  theme_hm +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+spear_sep
 ```
 
 

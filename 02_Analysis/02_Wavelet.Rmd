@@ -213,7 +213,7 @@ scales <- grouped_pct_var %>%
     data = scale_labels
   ) +
   scale_fill_manual(values = color.gradient, name = "Chamber") +
-  facet_wrap(~grouped_scale) +
+  facet_wrap(~grouped_scale, scales = "free_y") +
   theme_hm +
   ylab(expression("Standard deviation (µmol" ~ m^-2 ~ h^-1 * ")")) +
   xlab("Temperature treatment (ºC above ambient)")
@@ -222,17 +222,18 @@ scales <- grouped_pct_var %>%
 # Create labels for plot
 norm_labels <- make_lm_label(
   data = grouped_pct_var %>%
-    left_join(ch4_sums) %>%
+    left_join(hot_moments) %>%
     mutate(sd = sqrt(var),
-           norm = sd/median),
+           norm = sd/as.numeric(annual_flux)),
   xvar = "Temp_C",
   yvar = "norm",
   group_var = "grouped_scale"
 )
 norm <- grouped_pct_var %>%
   left_join(ch4_sums) %>%
-  mutate(sd = sqrt(var),
-         norm = sd/median) %>%
+  left_join(hot_moments) %>%
+    mutate(sd = sqrt(var),
+           norm = sd/as.numeric(annual_flux)) %>%
   ggplot(aes(x = Temp_C, y = norm)) +
   geom_smooth(method = "lm", color = "black") +
   geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
@@ -244,7 +245,7 @@ norm <- grouped_pct_var %>%
     data = norm_labels
   ) +
   scale_fill_manual(values = color.gradient, name = "Chamber") +
-  facet_wrap(~grouped_scale) +
+  facet_wrap(~grouped_scale, scales = "free_y") +
   theme_hm +
   ylab("Normalized standard deviation") +
   xlab("Temperature treatment (ºC above ambient)")
@@ -300,6 +301,7 @@ scales_bar <- patchwork::wrap_plots(
 
 # Save
 ggsave(scales_bar, filename = "../03_Figures/Manuscript/Figure 5- Wavelet scales.png", width = 7, height = 4.5)
+ggsave(norm, filename = "../03_Figures/SI/SI- Wavelet normalized.png", width = 4, height = 4.5)
 ```
 
 
@@ -361,8 +363,6 @@ discrete_scales %>%
   )
 
 ggsave(filename = "../03_Figures/SI/SI - Wavelet comprehensive.png", width = 10, height = 3.5)
-library(lme4)
-lmer()
 ```
 
 
@@ -444,7 +444,7 @@ spear_sep <- spearman_corrs %>%
   theme_hm +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-spear_sep
+ggsave(spear_sep, filename = "../03_Figures/SI/SI - Spearman correlations.png", width = 6, height = 4)
 ```
 
 

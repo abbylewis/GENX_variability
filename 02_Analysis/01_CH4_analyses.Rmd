@@ -308,6 +308,23 @@ patchwork::wrap_plots(
 
 ggsave("../03_Figures/Presentation/Figure 2 - Data drivers pres.jpg", dpi = 300, width = 7, height = 5)
 
+# Make an even smaller version for presentations
+ch4 %>%
+  filter(Chamber == "Ch. 12 (+5.7 ºC)") %>%
+  ggplot(aes(x = DateTime_EST, y = CH4_umol_m2_h)) +
+  geom_line()+
+  xlab("Date")+
+  guides(color = guide_legend(ncol = 4)) +
+  theme_hm +
+  theme(legend.position = "none",
+        axis.title.y = element_blank()) +
+  scale_x_datetime(
+    date_breaks = "1 month",
+    date_labels = "%b"
+  )
+
+ggsave("../03_Figures/Presentation/Figure 2 - Data pres tiny.jpg", dpi = 300, width = 4, height = 3)
+
 # Make an expanded version for the SI
 annual_panel <- patchwork::wrap_plots(
   annual +

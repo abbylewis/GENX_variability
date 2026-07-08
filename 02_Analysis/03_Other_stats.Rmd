@@ -12,7 +12,7 @@ This file contains code to calculate relevant statistics for manuscript text.
 ### Table of contents:
 
 -   Step 1: Load data and packages
--   Step 2: Calculate inundation percent
+-   Step 2: Calculate inundation and salinity
 
 
 ## Step 1: Load data and packages
@@ -28,7 +28,7 @@ ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.
 ```
 
 
-## Step 2: Calculate inundation percent
+## Step 2: Calculate inundation and salinity
 
 ```{r}
 ch4 %>%

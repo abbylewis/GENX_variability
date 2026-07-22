@@ -27,7 +27,7 @@ This file contains code to analyze and visualize the effects of soil warming on 
 library(tidyverse)
 source("hm_style.R")
 source("plot_all_data.R")
-source("make_lm_label.R")
+source("make_gam_label.R")
 source("calc_bias.R")
 
 # Load data
@@ -40,6 +40,10 @@ ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.
 soil_temp <- read_csv(here::here("01_Data", "Soil_temp.csv")) %>%
   mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST"),
          Chamber = factor(Chamber, levels = chamber_labels))
+
+smartx <- read_csv(here::here("01_Data", "SMARTX CH4 and CO2 fluxes_2016-2025.csv")) %>%
+  mutate(date = as_date(Date, format = "%m/%d/%Y"),
+         CH4_umol_m2_h = `CH4 flux (umol/m2/d)`/24)
 ```
 
 
@@ -140,7 +144,7 @@ annual_wl <- make_annual_plot(
 annual_sal <- make_annual_plot(
   annual_ch4_df,
   "date", "Salinity",
-  ylabel = expression(atop("Salinity", "(PSU)")),
+  ylabel = expression(atop("Salinity", "(PPT)")),
   zero_line = NULL
 )
 
@@ -198,7 +202,7 @@ focal_Reco <- make_focal_plot(
 focal_sal <- make_focal_plot(
   focal_ch4_df,
   "DateTime_EST", "Salinity",
-  ylabel = expression(atop("Salinity", "(PSU)")),
+  ylabel = expression(atop("Salinity", "(PPT)")),
   zero_line = NULL
 )
 
@@ -405,6 +409,40 @@ comb <- patchwork::wrap_plots(
 comb
 
 ggsave("../03_Figures/SI/SI - Data drivers expanded.jpg", dpi = 300, width = 7, height = 10)
+
+ch4 %>%
+  mutate(DateTime_EST = as.POSIXct(DateTime_EST)) %>%
+  ggplot(aes(x = DateTime_EST, y = CH4_umol_m2_h)) +
+  scale_x_datetime(
+    date_breaks = "1 month",
+    date_labels = "%b"
+  ) +
+  theme_hm +
+  theme(
+    axis.title.x = element_blank()
+  ) +
+  labs(y = expression(atop(CH[4] ~ "flux","(µmol" ~ m^-2 ~ h^-1 * ")"))) +
+  geom_hline(
+    yintercept = 0,
+    color = "grey50"
+  ) +
+  geom_line(
+    aes(color = Chamber),
+    linewidth = 0.5
+  ) +
+  scale_color_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  geom_point(data = smartx %>%
+               filter(!substr(Plot, 1,1) == "6",
+                      year(date) == 2025,
+                      month(date) > 3) %>%
+               mutate(DateTime_EST = as.POSIXct(as_datetime(paste0(date, " 00:00:00")))),
+             size = 2)
+
+ggsave("../03_Figures/Presentation/Figure 2 - SMARTX comparison.jpg", 
+       dpi = 300, width = 5.5, height = 3)
 ```
 
 
@@ -462,7 +500,7 @@ hot_moments <- hm_df %>%
   )
 
 # Generate panel labels
-annual_label <- make_lm_label(
+annual_label <- make_gam_label(
   data = hot_moments,
   xvar = "Temp_C",
   yvar = "annual_flux"
@@ -471,16 +509,19 @@ annual_label <- make_lm_label(
 # Plot overall growing season totals
 annual <- hot_moments %>%
   ggplot(aes(x = Temp_C, y = annual_flux)) +
-  geom_smooth(method = "lm", color = "black") +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML"),
+              color = "black") +
   geom_point(aes(fill = Chamber),
     color = "black", shape = 21,
     stroke = 0.5, size = 2
   ) +
   geom_text(
     aes(x = -Inf, y = Inf, label = annual_label$label),
-    hjust = 0, vjust = 1.1,
+    hjust = 0, vjust = 1.5,
     inherit.aes = FALSE,
-    size = 3, data = data.frame()
+    size = 2.5, data = data.frame()
   ) +
   scale_fill_manual(values = color.gradient, name = "Chamber") +
   theme_hm +
@@ -514,9 +555,15 @@ top_pct <- hot_moments %>%
   ) %>%
   group_by(name) %>%
   mutate(
-    model  = list(lm(value ~ Temp_C)),
-    p      = summary(model[[1]])$coefficients[2, 4],
-    r2     = summary(model[[1]])$r.squared,
+    model = list(
+      mgcv::gam(
+        value ~ s(Temp_C, k = 3),
+        data = cur_data(),
+        method = "REML"
+      )
+    ),
+    p      = summary(model[[1]])$s.pv,
+    r2     = summary(model[[1]])$r.sq,
     median = median(value)
   ) %>%
   ungroup()
@@ -539,13 +586,11 @@ label_df <- top_pct %>%
 top_pct_fig <- top_pct %>%
   ggplot(aes(x = Temp_C, y = value)) +
   geom_smooth(
-    method = "lm", color = "black",
+    method = "gam",
+    formula = y ~ s(x, k = 3),
+    method.args = list(method = "REML"),
+    color = "black",
     data = ~ subset(.x, p < 0.05)
-  ) +
-  geom_smooth(
-    method = "lm", color = "grey70",
-    data = ~ subset(.x, p >= 0.05),
-    lty = "51", alpha = 0.15
   ) +
   geom_point(aes(fill = Chamber),
     color = "black", shape = 21,
@@ -554,8 +599,8 @@ top_pct_fig <- top_pct %>%
   geom_text(
     data = label_df,
     aes(x = -Inf, y = Inf, label = label),
-    hjust = 0, vjust = 1.1,
-    inherit.aes = FALSE, size = 3
+    hjust = 0, vjust = 1.2,
+    inherit.aes = FALSE, size = 2.5
   ) +
   scale_fill_manual(values = color.gradient, name = "Chamber") +
   theme_hm +
@@ -583,7 +628,10 @@ top_pct_pres <- top_pct %>%
   filter(name == "Top 1% of measurements") %>%
   ggplot(aes(x = Temp_C, y = value)) +
   geom_smooth(
-    method = "lm", color = "black",
+    method = "gam",
+    formula = y ~ s(x, k = 3),
+    method.args = list(method = "REML"),
+    color = "black",
     data = ~ subset(.x, p < 0.05)
   ) +
   geom_point(aes(fill = Chamber),
@@ -594,7 +642,7 @@ top_pct_pres <- top_pct %>%
     data = label_df %>%
       filter(name == "Top 1% of measurements"),
     aes(x = -Inf, y = Inf, label = label),
-    hjust = 0, vjust = 1.1,
+    hjust = 0, vjust = 1.5,
     inherit.aes = FALSE, size = 4
   ) +
   scale_fill_manual(values = color.gradient, name = "Chamber") +
@@ -705,7 +753,7 @@ sims_full_day <- to_plot_median %>%
 
 # Plot monthly medians by temperature
 # First, calculate statistics for plot
-sims_label <- make_lm_label(
+sims_label <- make_gam_label(
   data = to_plot_median %>%
     filter(
       interval == "monthly",
@@ -723,13 +771,16 @@ sims_month <- to_plot_median %>%
   ) %>%
   ggplot(aes(x = as.numeric(Temp_C), y = median_bias, group = "group")) +
   geom_hline(yintercept = 0, color = "grey85") +
-  geom_smooth(method = "lm", color = "black") +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML"),
+              color = "black") +
   geom_point(aes(fill = Chamber), shape = 21, size = 2, stroke = 0.5) +
   geom_text(
     data = sims_label,
     aes(x = -Inf, y = -Inf, label = label),
     hjust = 0, vjust = -0.1,
-    inherit.aes = FALSE, size = 3
+    inherit.aes = FALSE, size = 2.5
   ) +
   scale_x_continuous(
     limits = c(-0.5, 6.5),
@@ -971,7 +1022,7 @@ for_plot <- resids %>%
   mutate(Chamber = factor(Chamber, levels = chamber_labels))
 
 # Generate labels
-labs <- make_lm_label(for_plot, "value", "resid",
+labs <- make_gam_label(for_plot, "value", "resid",
   group_var = "HM_variable", group_var2 = "name"
 ) %>%
   left_join(for_plot %>%

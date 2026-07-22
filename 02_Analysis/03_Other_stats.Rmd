@@ -40,3 +40,34 @@ ch4 %>%
             max_sal = max(Salinity, na.rm = T))
 ```
 
+## Step 3: Calculate ebullition
+
+```{r}
+ch4 %>%
+  group_by(Chamber) %>%
+  summarize(n_eb = sum(Ebullition_yn, na.rm = T),
+            pct_eb = n_eb / sum(!is.na(Ebullition_yn)),
+            n_tot = sum(!is.na(Ebullition_yn)))
+```
+
+```{r}
+ch4 %>%
+  filter(!is.na(CH4_umol_m2_h), 
+         CH4_umol_m2_h > 0) %>%
+  group_by(Chamber) %>%
+  summarize(g = DescTools::Gini(CH4_umol_m2_h)) %>%
+  mutate( # Add temperature treatment
+    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "-*[0-9]+\\.*[0-9]* ºC")),
+    Temp_C = as.numeric(sub("mb", "0", Temp_C)),
+    Chamber = factor(Chamber, levels = chamber_labels)
+  ) %>%
+  ggplot(aes(x = Temp_C, y = g))+
+  geom_point(aes(fill = Chamber),
+    color = "black", shape = 21,
+    stroke = 0.5, size = 2
+  ) +
+  geom_smooth(method = "lm", color = "black") +
+  theme_hm +
+  scale_fill_manual(values = color.gradient, name = "Chamber")
+```
+

@@ -28,7 +28,7 @@ library(data.table)
 library(waveslim)
 library(DescTools)
 source("wavelet_functions.R")
-source("make_lm_label.R")
+source("make_gam_label.R")
 source("hm_style.R")
 
 # Load data
@@ -192,7 +192,7 @@ grouped_pct_var <- grouped_dfs %>%
   )
 
 # Create labels for plot
-scale_labels <- make_lm_label(
+scale_labels <- make_gam_label(
   data = grouped_pct_var %>% mutate(sd = sqrt(var)),
   xvar = "Temp_C",
   yvar = "sd",
@@ -203,7 +203,10 @@ scale_labels <- make_lm_label(
 scales <- grouped_pct_var %>%
   mutate(sd = sqrt(var)) %>%
   ggplot(aes(x = Temp_C, y = sd)) +
-  geom_smooth(method = "lm", color = "black") +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML"),
+              color = "black") +
   geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
   geom_text(
     aes(x = -Inf, y = Inf, label = label),
@@ -220,49 +223,52 @@ scales <- grouped_pct_var %>%
 
 # Plot normalized variance at each scale
 # Create labels for plot
-norm_labels <- make_lm_label(
-  data = grouped_pct_var %>%
-    left_join(hot_moments) %>%
-    mutate(sd = sqrt(var),
-           norm = sd/as.numeric(annual_flux)),
-  xvar = "Temp_C",
-  yvar = "norm",
-  group_var = "grouped_scale"
-)
-norm <- grouped_pct_var %>%
-  left_join(ch4_sums) %>%
-  left_join(hot_moments) %>%
-    mutate(sd = sqrt(var),
-           norm = sd/as.numeric(annual_flux)) %>%
-  ggplot(aes(x = Temp_C, y = norm)) +
-  geom_smooth(method = "lm", color = "black") +
-  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
-  geom_text(
-    aes(x = -Inf, y = Inf, label = label),
-    hjust = 0, vjust = 1.1,
-    inherit.aes = FALSE,
-    size = 3,
-    data = norm_labels
-  ) +
-  scale_fill_manual(values = color.gradient, name = "Chamber") +
-  facet_wrap(~grouped_scale, scales = "free_y") +
-  theme_hm +
-  ylab("Normalized standard deviation") +
-  xlab("Temperature treatment (ºC above ambient)")
+#norm_labels <- make_gam_label(
+#  data = grouped_pct_var %>%
+#    left_join(hot_moments) %>%
+#    mutate(sd = sqrt(var),
+#           norm = sd/as.numeric(annual_flux)),
+#  xvar = "Temp_C",
+#  yvar = "norm",
+#  group_var = "grouped_scale"
+#)
+#norm <- grouped_pct_var %>%
+#  left_join(ch4_sums) %>%
+#  left_join(hot_moments) %>%
+#    mutate(sd = sqrt(var),
+#           norm = sd/as.numeric(annual_flux)) %>%
+#  ggplot(aes(x = Temp_C, y = norm)) +
+#  geom_smooth(method = "gam",
+#    formula = y ~ s(x, k = 3),
+#    method.args = list(method = "REML"),
+#    color = "black") +
+#  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
+#  geom_text(
+#    aes(x = -Inf, y = Inf, label = label),
+#    hjust = 0, vjust = 1.1,
+#    inherit.aes = FALSE,
+#    size = 3,
+#    data = norm_labels
+#  ) +
+#  scale_fill_manual(values = color.gradient, name = "Chamber") +
+#  facet_wrap(~grouped_scale, scales = "free_y") +
+#  theme_hm +
+#  ylab("Normalized standard deviation") +
+#  xlab("Temperature treatment (ºC above ambient)")
 
 # Plot proportional variance at each scale
 barchart <- grouped_pct_var %>%
   mutate(
     sd = sqrt(var),
     grouped_scale = factor(grouped_scale,
-      levels = rev(levels(grouped_scale))
+      levels = levels(grouped_scale)
     )
   ) %>%
   ggplot(aes(x = Chamber, y = var / tot_var, fill = grouped_scale)) +
   geom_col(color = "black", linewidth = 0.2, width = 0.8) +
   theme_hm +
   scale_fill_manual(
-    values = c("grey93", "grey80", "grey40", "grey15"),
+    values = rev(c("grey93", "grey80", "grey40", "grey15")),
     name = "Scale"
   ) +
   ylab(expression("Proportion of total variance")) +
@@ -301,7 +307,7 @@ scales_bar <- patchwork::wrap_plots(
 
 # Save
 ggsave(scales_bar, filename = "../03_Figures/Manuscript/Figure 5- Wavelet scales.png", width = 7, height = 4.5)
-ggsave(norm, filename = "../03_Figures/SI/SI- Wavelet normalized.png", width = 4, height = 4.5)
+#ggsave(norm, filename = "../03_Figures/SI/SI - Wavelet normalized.png", width = 4, height = 4.5)
 ```
 
 
@@ -445,6 +451,116 @@ spear_sep <- spearman_corrs %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 ggsave(spear_sep, filename = "../03_Figures/SI/SI - Spearman correlations.png", width = 6, height = 4)
+
+# Now try not grouping
+
+# Group wavelet scales into interpretable bins
+ungrouped_dfs <- dfs %>%
+  mutate(
+    name = as.character(name),
+    grouped_scale = name,
+    num_value = as.numeric(gsub("[^0-9]", "", name)),
+    text = gsub("[0-9]+ ", "", name),
+    text = factor(text, levels = c("hours", "days")),
+    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "-*[0-9]+\\.*[0-9]* ºC")),
+    Temp_C = as.numeric(sub("mb", "0", Temp_C))
+  ) %>%
+  group_by(grouped_scale, Chamber, DateTime_EST, var_name, Temp_C, text, num_value) %>%
+  summarize(
+    value = sum(value, na.rm = T),
+    reconstructed = sum(reconstructed, na.rm = T),
+    .groups = "drop"
+  )
+
+levels <- ungrouped_dfs %>%
+  select(grouped_scale, text, num_value) %>%
+  distinct() %>%
+  arrange(text, num_value)
+
+trimmed_levels <- levels %>%
+  filter(num_value < 50)
+
+# Make a wider version
+discrete_scales_ungrouped <- ungrouped_dfs %>%
+  pivot_wider(names_from = var_name, values_from = c(value, reconstructed)) %>%
+  rename_with(~ gsub("value_", "", .x)) %>%
+  left_join(nas_to_add) %>%
+  mutate(
+    CH4_unfilled = ifelse(na_ch4, NA, CH4_umol_m2_h),
+    GPP_unfilled = ifelse(na_gpp, NA, GPP_umol_m2_h),
+    Chamber = factor(Chamber,
+      levels = chamber_labels
+    ),
+    grouped_scale = factor(grouped_scale,
+      levels = unique(trimmed_levels$grouped_scale)
+    )
+  ) %>%
+  filter(!is.na(grouped_scale)) %>%
+  select(-na_ch4, -na_gpp, -text, -num_value)
+
+# Separate explanatory variables
+discrete_scales_exp_ungrouped <- discrete_scales_ungrouped %>%
+  dplyr::select(-matches("CH4_unfilled|CH4_umol_m2_h|GPP_unfilled|recon")) %>%
+  dplyr::select(-Temp_C) %>%
+  pivot_longer(
+    cols = -c(grouped_scale, Chamber, DateTime_EST),
+    names_to = "exp_var", values_to = "exp_var_value"
+  ) %>%
+  filter(!is.na(exp_var_value)) %>%
+  rename(grouped_scale_exp = grouped_scale)
+
+# Calculate correlations
+spearman_corrs_ungrouped <- discrete_scales_ungrouped %>%
+  dplyr::select(c(grouped_scale, Chamber, DateTime_EST, CH4_umol_m2_h)) %>%
+  left_join(discrete_scales_exp_ungrouped, relationship = "many-to-many") %>%
+  filter(
+    !is.na(exp_var_value),
+    !is.na(CH4_umol_m2_h)
+  ) %>%
+  group_by(Chamber, grouped_scale, exp_var, grouped_scale_exp) %>%
+  summarize(
+    spearman_rho = cor(exp_var_value, CH4_umol_m2_h,
+      method = "spearman",
+      use = "complete.obs"
+    ),
+    spearman_rho2 = spearman_rho^2,
+    abs_rho = abs(spearman_rho),
+    .groups = "drop"
+  ) %>%
+  filter(
+    grouped_scale == grouped_scale_exp
+  )
+
+# Plot correlations
+spear_ungrouped <- spearman_corrs_ungrouped %>%
+  ggplot(aes(
+    x = grouped_scale,
+    y = spearman_rho,
+    color = exp_var,
+    group = exp_var
+  )) +
+  geom_hline(color = "grey50", yintercept = 0) +
+  geom_line(alpha = 0.1, aes(group = paste0(Chamber, exp_var))) +
+  geom_line(
+    data = . %>% group_by(exp_var, grouped_scale) %>%
+      summarize(spearman_rho = mean(spearman_rho)),
+    linewidth = 1.5
+  ) +
+  scale_x_discrete(expand = c(0, 0.4)) +
+  xlab("Wavelet scale of variation") +
+  ylab("Spearman correlation (ρ)") +
+  scale_color_manual(
+    values = driver_colors[drivers],
+    labels = driver_labels[drivers],
+    name = "Explanatory variable"
+  ) +
+  guides(color = guide_legend(ncol = 2)) +
+  theme_hm +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Visualize and save
+spear_ungrouped
+ggsave(spear_ungrouped, filename = "../03_Figures/SI/SI - Spearman correlations ungrouped.png", width = 4, height = 4)
 ```
 
 
@@ -498,7 +614,7 @@ for_plot <- resids %>%
   mutate(Chamber = factor(Chamber, levels = chamber_labels))
 
 # Generate labels
-labs <- make_lm_label(for_plot, "value", "resid",
+labs <- make_gam_label(for_plot, "value", "resid",
   group_var = "grouped_scale", group_var2 = "name"
 ) %>%
   left_join(for_plot %>%

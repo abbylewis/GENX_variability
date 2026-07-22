@@ -779,7 +779,7 @@ sims_month <- to_plot_median %>%
   geom_text(
     data = sims_label,
     aes(x = -Inf, y = -Inf, label = label),
-    hjust = 0, vjust = -0.1,
+    hjust = 0, vjust = -0.5,
     inherit.aes = FALSE, size = 2.5
   ) +
   scale_x_continuous(

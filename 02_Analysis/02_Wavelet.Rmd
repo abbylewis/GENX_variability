@@ -27,9 +27,10 @@ library(tidyverse)
 library(data.table)
 library(waveslim)
 library(DescTools)
-source("wavelet_functions.R")
-source("make_gam_label.R")
-source("hm_style.R")
+source("R/wavelet_functions.R")
+source("R/make_gam_label.R")
+source("R/make_lm_label.R")
+source("R/hm_style.R")
 
 # Load data
 ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv")) %>%
@@ -221,40 +222,44 @@ scales <- grouped_pct_var %>%
   ylab(expression("Standard deviation (µmol" ~ m^-2 ~ h^-1 * ")")) +
   xlab("Temperature treatment (ºC above ambient)")
 
+annual <- read_csv("annual_totals.csv") %>%
+  mutate(Chamber = factor(Chamber, levels = chamber_labels))
+
 # Plot normalized variance at each scale
 # Create labels for plot
-#norm_labels <- make_gam_label(
-#  data = grouped_pct_var %>%
-#    left_join(hot_moments) %>%
-#    mutate(sd = sqrt(var),
-#           norm = sd/as.numeric(annual_flux)),
-#  xvar = "Temp_C",
-#  yvar = "norm",
-#  group_var = "grouped_scale"
-#)
-#norm <- grouped_pct_var %>%
-#  left_join(ch4_sums) %>%
-#  left_join(hot_moments) %>%
-#    mutate(sd = sqrt(var),
-#           norm = sd/as.numeric(annual_flux)) %>%
-#  ggplot(aes(x = Temp_C, y = norm)) +
-#  geom_smooth(method = "gam",
-#    formula = y ~ s(x, k = 3),
-#    method.args = list(method = "REML"),
-#    color = "black") +
-#  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
-#  geom_text(
-#    aes(x = -Inf, y = Inf, label = label),
-#    hjust = 0, vjust = 1.1,
-#    inherit.aes = FALSE,
-#    size = 3,
-#    data = norm_labels
-#  ) +
-#  scale_fill_manual(values = color.gradient, name = "Chamber") +
-#  facet_wrap(~grouped_scale, scales = "free_y") +
-#  theme_hm +
-#  ylab("Normalized standard deviation") +
-#  xlab("Temperature treatment (ºC above ambient)")
+norm_labels <- make_gam_label(
+  data = grouped_pct_var %>%
+    left_join(annual) %>%
+    mutate(sd = sqrt(var),
+           norm = sd/as.numeric(annual_flux)),
+  xvar = "Temp_C",
+  yvar = "norm",
+  group_var = "grouped_scale"
+)
+
+norm <- grouped_pct_var %>%
+  left_join(ch4_sums) %>%
+  left_join(annual) %>%
+    mutate(sd = sqrt(var),
+           norm = sd/as.numeric(annual_flux)) %>%
+  ggplot(aes(x = Temp_C, y = norm)) +
+  geom_smooth(method = "gam",
+    formula = y ~ s(x, k = 3),
+    method.args = list(method = "REML"),
+    color = "black") +
+  geom_point(aes(fill = Chamber), size = 2, stroke = 0.5, shape = 21) +
+  geom_text(
+    aes(x = -Inf, y = Inf, label = label),
+    hjust = 0, vjust = 1.1,
+    inherit.aes = FALSE,
+    size = 3,
+    data = norm_labels
+  ) +
+  scale_fill_manual(values = color.gradient, name = "Chamber") +
+  facet_wrap(~grouped_scale, scales = "free_y") +
+  theme_hm +
+  ylab("Normalized standard deviation") +
+  xlab("Temperature treatment (ºC above ambient)")
 
 # Plot proportional variance at each scale
 barchart <- grouped_pct_var %>%
@@ -307,7 +312,7 @@ scales_bar <- patchwork::wrap_plots(
 
 # Save
 ggsave(scales_bar, filename = "../03_Figures/Manuscript/Figure 5- Wavelet scales.png", width = 7, height = 4.5)
-#ggsave(norm, filename = "../03_Figures/SI/SI - Wavelet normalized.png", width = 4, height = 4.5)
+ggsave(norm, filename = "../03_Figures/SI/SI - Wavelet normalized.png", width = 4, height = 4.5)
 ```
 
 
@@ -605,7 +610,7 @@ drivers <- rtk %>%
 # Calculate residuals
 resids <- grouped_pct_var %>%
   group_by(grouped_scale) %>%
-  mutate(resid = lm(var ~ Temp_C)$residuals) %>%
+  mutate(resid = mgcv::gam(var ~ s(Temp_C, k = 3))$residuals) %>%
   select(grouped_scale, resid, Chamber)
 
 # Combine
@@ -614,7 +619,7 @@ for_plot <- resids %>%
   mutate(Chamber = factor(Chamber, levels = chamber_labels))
 
 # Generate labels
-labs <- make_gam_label(for_plot, "value", "resid",
+labs <- make_lm_label(for_plot, "value", "resid",
   group_var = "grouped_scale", group_var2 = "name"
 ) %>%
   left_join(for_plot %>%

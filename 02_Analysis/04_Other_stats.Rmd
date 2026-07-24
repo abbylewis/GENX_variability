@@ -55,19 +55,39 @@ ch4 %>%
   filter(!is.na(CH4_umol_m2_h), 
          CH4_umol_m2_h > 0) %>%
   group_by(Chamber) %>%
-  summarize(g = DescTools::Gini(CH4_umol_m2_h)) %>%
+  summarize(gini = DescTools::Gini(CH4_umol_m2_h),
+            kurtosis = e1071::kurtosis(CH4_umol_m2_h, na.rm = TRUE, type = 2),
+            skewness = e1071::skewness(CH4_umol_m2_h, na.rm = TRUE, type = 2)) %>%
+  pivot_longer(c(gini, skewness, kurtosis)) %>%
   mutate( # Add temperature treatment
     Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "-*[0-9]+\\.*[0-9]* ºC")),
     Temp_C = as.numeric(sub("mb", "0", Temp_C)),
-    Chamber = factor(Chamber, levels = chamber_labels)
+    Chamber = factor(Chamber, levels = chamber_labels),
+    name = factor(name,
+                  levels = c("skewness", "kurtosis", "gini"),
+                  labels = c("Skewness", "Kurtosis", "Gini Coefficient"))
   ) %>%
-  ggplot(aes(x = Temp_C, y = g))+
+  ggplot(aes(x = Temp_C, y = value))+
   geom_point(aes(fill = Chamber),
     color = "black", shape = 21,
     stroke = 0.5, size = 2
   ) +
-  geom_smooth(method = "lm", color = "black") +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML"),
+              color = "black",
+              data = . %>%
+                filter(name == "Gini Coefficient")) +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML",
+                                 family = mgcv::tw(link = "log")),
+              color = "black",
+              data = . %>%
+                filter(name != "Gini Coefficient")) +
   theme_hm +
-  scale_fill_manual(values = color.gradient, name = "Chamber")
+  facet_wrap(~name, scales = "free_y")+
+  scale_fill_manual(values = color.gradient, name = "Chamber") +
+  xlab("Temperature treatment (ºC above ambient)")
 ```
 

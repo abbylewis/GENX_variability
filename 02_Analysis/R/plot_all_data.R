@@ -73,19 +73,11 @@ make_focal_plot <- function(
     colour = NULL,
     ylabel,
     line_colour = "grey20",
-    zero_line = "grey80"
+    zero_line = "grey80",
+    background = F
 ) {
   
   p <- ggplot(data, aes(.data[[x]], .data[[y]])) +
-    annotate(
-      "rect",
-      xmin = start_datetime,
-      xmax = end_datetime,
-      ymin = -Inf,
-      ymax = Inf,
-      fill = "grey50",
-      alpha = 0.2
-    ) +
     scale_x_datetime(
       date_breaks = "3 days",
       date_labels = "%d %b"
@@ -97,6 +89,19 @@ make_focal_plot <- function(
     ) +
     labs(y = ylabel)
   
+    if(background){
+      p <- p + 
+        annotate(
+          "rect",
+          xmin = start_datetime,
+          xmax = end_datetime,
+          ymin = -Inf,
+          ymax = Inf,
+          fill = "grey50",
+          alpha = 0.2
+        )
+    }
+    
   if (!is.null(zero_line)){
     p <- p +
       geom_hline(

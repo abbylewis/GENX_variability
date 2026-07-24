@@ -25,10 +25,11 @@ This file contains code to analyze and visualize the effects of soil warming on 
 ```{r setup}
 # Load packages and functions
 library(tidyverse)
-source("hm_style.R")
-source("plot_all_data.R")
-source("make_gam_label.R")
-source("calc_bias.R")
+source("R/hm_style.R")
+source("R/plot_all_data.R")
+source("R/make_gam_label.R")
+source("R/make_lm_label.R")
+source("R/calc_bias.R")
 
 # Load data
 ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv")) %>%
@@ -498,6 +499,11 @@ hot_moments <- hm_df %>%
     Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "-*[0-9]+\\.*[0-9]* ºC")),
     Temp_C = as.numeric(sub("mb", "0", Temp_C))
   )
+
+write_csv(hot_moments %>%
+            select(Chamber,
+                   annual_flux), 
+          "annual_totals.csv") #Used in a wavelet fig
 
 # Generate panel labels
 annual_label <- make_gam_label(
@@ -1007,7 +1013,8 @@ resids <- hot_moments %>%
   ) %>%
   select(Chamber, Temp_C, hm_pct_998, hm_pct_99, hm_pct_95, annual_flux) %>%
   pivot_longer(-c(Chamber, Temp_C), names_to = "HM_variable") %>%
-  mutate(resid = lm(value ~ Temp_C)$residuals) %>%
+  group_by(HM_variable) %>%
+  mutate(resid = mgcv::gam(value ~ s(Temp_C, k = 3))$residuals) %>%
   mutate(HM_variable = replace_values(
     HM_variable,
     "hm_pct_99" ~ "'Top 1%'",
@@ -1022,7 +1029,7 @@ for_plot <- resids %>%
   mutate(Chamber = factor(Chamber, levels = chamber_labels))
 
 # Generate labels
-labs <- make_gam_label(for_plot, "value", "resid",
+labs <- make_lm_label(for_plot, "value", "resid",
   group_var = "HM_variable", group_var2 = "name"
 ) %>%
   left_join(for_plot %>%

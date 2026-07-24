@@ -24,6 +24,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(patchwork)
 library(mgcv)
+source("R/hm_style.R")
 
 # Load data
 ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv")) %>%
@@ -36,6 +37,40 @@ n_days <- as.numeric(difftime(max(ch4$DateTime_EST),
   min(ch4$DateTime_EST),
   units = "days"
 ))
+```
+
+Calculate percent
+
+```{r}
+# Only use days that have data from all 12 chambers
+hm_df <- ch4 %>%
+  filter(!is.na(CH4_umol_m2_h)) %>%
+  group_by(date) %>%
+  filter(length(unique(Chamber)) == 12)
+
+# Calculate the contribution of ebullitive fluxes
+hot_moments <- hm_df %>%
+  group_by(Chamber) %>%
+  # Calculate sum of fluxes that exceed each threshold
+  # and convert to growing season total (mol/m2/y from umol/m2/h)
+  summarize(
+    n = sum(!is.na(CH4_umol_m2_h)),
+    annual_flux = sum(CH4_umol_m2_h, na.rm = T) /
+      n / 1000 / 1000 * (n_days * 24),
+    hot_sum_eb = sum(CH4_umol_m2_h[!is.na(Ebullition_yn) & Ebullition_yn]) /
+      n / 1000 / 1000 * (n_days * 24)
+  ) %>%
+  mutate( # Add temperature treatment
+    Temp_C = sub(" ºC", "", str_extract(as.character(Chamber), "-*[0-9]+\\.*[0-9]* ºC")),
+    Temp_C = as.numeric(sub("mb", "0", Temp_C))
+  )
+
+# Calculate summary stats about the contribution of extreme events
+top_pct <- hot_moments %>%
+  mutate(
+    hm_pct_eb = hot_sum_eb / annual_flux * 100,
+  ) %>%
+  select(Temp_C, Chamber, hm_pct_eb)
 ```
 
 Ebullition figure
@@ -129,8 +164,7 @@ eb_magnitude <- ch4 %>%
   guides(fill = guide_legend(ncol = 4))
 
 eb_annual <- top_pct %>%
-  filter(name == "Ebullition events") %>%
-  ggplot(aes(x = Temp_C, y = value)) +
+  ggplot(aes(x = Temp_C, y = hm_pct_eb)) +
   geom_smooth(method = "gam",
               formula = y ~ s(x, k = 3),
               method.args = list(method = "REML",
@@ -155,12 +189,15 @@ eb_annual <- top_pct %>%
 comb <- patchwork::wrap_plots(
   a = eb_number,
   b = eb_magnitude + theme(legend.position = "none"),
-  c = eb_annual+ theme(legend.position = "none"),
+  c = eb_annual + theme(legend.position = "none"),
   nrow = 1,
   ncol = 3,
-  #guides = "collect",
   axis_titles = "collect"
-)
+) +
+  plot_annotation(tag_levels = "a") &
+  theme(
+    plot.tag = element_text(face = "bold"))
+    
 comb
 
 ggsave(

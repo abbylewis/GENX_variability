@@ -118,7 +118,7 @@ eb_number <- ch4 %>%
   ) +
   chamber_scale +
   theme_hm +
-  ylab(expression(atop("Ebullitive fluxes", "(% of all fluxes)"))) +
+  ylab(expression(atop("Ebullitive fluxes", "(% of all measurements)"))) +
   xlab("Temperature treatment (ºC above ambient)") +
   guides(fill = guide_legend(ncol = 4))
 

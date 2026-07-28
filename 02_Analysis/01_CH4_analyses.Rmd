@@ -286,7 +286,7 @@ patchwork::wrap_plots(
     panel_theme +
     theme(legend.position = "bottom"),
   
-  annual_ST <- make_annual_plot(
+  make_annual_plot(
     annual_ST_df,
     "date", "Temp_C", "Chamber",
     expression(atop("Soil temp.", "(ºC)")),

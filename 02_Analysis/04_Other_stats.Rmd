@@ -13,6 +13,7 @@ This file contains code to calculate relevant statistics for manuscript text.
 
 -   Step 1: Load data and packages
 -   Step 2: Calculate inundation and salinity
+-   Step 3: Plot flux distribution statistics
 
 
 ## Step 1: Load data and packages
@@ -22,6 +23,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Load packages
 library(tidyverse)
+library(mgcv)
+source("R/hm_style.R")
 
 # Load data
 ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv"))
@@ -30,7 +33,7 @@ ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.
 
 ## Step 2: Calculate inundation and salinity
 
-```{r}
+```{r water}
 ch4 %>%
   summarize(n_flooded = sum(Depth_cm > 0, na.rm = T) / sum(!is.na(Depth_cm)))
 
@@ -40,18 +43,11 @@ ch4 %>%
             max_sal = max(Salinity, na.rm = T))
 ```
 
-## Step 3: Calculate ebullition
 
-```{r}
-ch4 %>%
-  group_by(Chamber) %>%
-  summarize(n_eb = sum(Ebullition_yn, na.rm = T),
-            pct_eb = n_eb / sum(!is.na(Ebullition_yn)),
-            n_tot = sum(!is.na(Ebullition_yn)))
-```
+## Step 3: Plot flux distribution statistics
 
-```{r}
-ch4 %>%
+```{r distributions}
+dist_metrics <- ch4 %>%
   filter(!is.na(CH4_umol_m2_h), 
          CH4_umol_m2_h > 0) %>%
   group_by(Chamber) %>%
@@ -89,5 +85,11 @@ ch4 %>%
   facet_wrap(~name, scales = "free_y")+
   scale_fill_manual(values = color.gradient, name = "Chamber") +
   xlab("Temperature treatment (ºC above ambient)")
+
+ggsave(
+  dist_metrics,
+  filename = "../03_Figures/SI/SI - Distributional metrics.jpg",
+  dpi = 300, width = 6, height = 3.5
+)
 ```
 

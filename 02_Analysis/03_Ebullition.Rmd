@@ -1,18 +1,20 @@
 ---
-title: "Other stats"
+title: "Ebullition"
 author: "Abby Lewis"
-date: "2024-08-22"
+date: "2026-07-01"
 output: html_document
 ---
 
 ## Overview
 
-This file contains code to calculate relevant statistics for manuscript text.
+This file contains code to plot the contribution of ebullition within each chamber.
 
 ### Table of contents:
 
 -   Step 1: Load data and packages
--   Step 2: Calculate inundation and salinity
+-   Step 2: Calculate the contribution of ebullitive fluxes
+-   Step 3: Plot ebullition statistics
+-   Step 4: Plot ebullition vs. water level
 
 
 ## Step 1: Load data and packages
@@ -39,9 +41,10 @@ n_days <- as.numeric(difftime(max(ch4$DateTime_EST),
 ))
 ```
 
-Calculate percent
 
-```{r}
+## Step 2: Calculate the contribution of ebullitive fluxes
+
+```{r stats}
 # Only use days that have data from all 12 chambers
 hm_df <- ch4 %>%
   filter(!is.na(CH4_umol_m2_h)) %>%
@@ -73,9 +76,10 @@ top_pct <- hot_moments %>%
   select(Temp_C, Chamber, hm_pct_eb)
 ```
 
-Ebullition figure
 
-```{r}
+## Step 3: Plot ebullition statistics
+
+```{r plot}
 names(color.gradient) <- chamber_labels
 chamber_scale <- scale_fill_manual(
   limits = chamber_labels,
@@ -207,9 +211,10 @@ ggsave(
 )
 ```
 
-When does ebullition happen
 
-```{r}
+## Step 4: Plot ebullition vs. water level
+
+```{r water}
 when <- ch4 %>%
   ggplot(aes(x = Depth_cm, y = CH4_umol_m2_h, color = Ebullition_yn))+
   geom_vline(aes(xintercept = 0)) +

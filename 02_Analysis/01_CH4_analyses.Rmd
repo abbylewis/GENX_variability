@@ -13,8 +13,8 @@ This file contains code to analyze and visualize the effects of soil warming on 
 
 -   Step 1: Load data and packages
 -   Step 2: Calculate summary statistics
--   Step 3: Plot data summary (Figure 2)
--   Step 4: Analyze the contribution of extreme fluxes (Figure 3)
+-   Step 3: Plot data summary (Figure 2 and variants)
+-   Step 4: Analyze the contribution of extreme fluxes (Figure 3 and variants)
 -   Step 5: Simulate low-frequency sampling to assess bias (Figure 4)
 -   Step 6: Daytime and WL sampling biases (SI)
 -   Step 7: Analyze residuals for annual and extreme fluxes
@@ -72,7 +72,7 @@ n_days <- as.numeric(difftime(max(ch4$DateTime_EST),
 ```
 
 
-## Step 3: Plot data summary (Figure 2)
+## Step 3: Plot data summary (Figure 2 and variants)
 
 ```{r fig_2}
 # Standardize x limits
@@ -447,7 +447,7 @@ ggsave("../03_Figures/Presentation/Figure 2 - SMARTX comparison.jpg",
 ```
 
 
-## Step 4: Analyze the contribution of extreme fluxes (Figure 3)
+## Step 4: Analyze the contribution of extreme fluxes (Figure 3 and variants)
 
 ```{r fig_3}
 # Only use days that have data from all 12 chambers

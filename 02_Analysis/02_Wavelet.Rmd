@@ -482,8 +482,8 @@ levels <- ungrouped_dfs %>%
   distinct() %>%
   arrange(text, num_value)
 
-trimmed_levels <- levels %>%
-  filter(num_value < 50)
+#trimmed_levels <- levels %>%
+#  filter(num_value < 50)
 
 # Make a wider version
 discrete_scales_ungrouped <- ungrouped_dfs %>%
@@ -497,7 +497,7 @@ discrete_scales_ungrouped <- ungrouped_dfs %>%
       levels = chamber_labels
     ),
     grouped_scale = factor(grouped_scale,
-      levels = unique(trimmed_levels$grouped_scale)
+      levels = unique(levels$grouped_scale)
     )
   ) %>%
   filter(!is.na(grouped_scale)) %>%

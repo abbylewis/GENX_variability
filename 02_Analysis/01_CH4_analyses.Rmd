@@ -330,6 +330,27 @@ ch4 %>%
 
 ggsave("../03_Figures/Presentation/Figure 2 - Data pres tiny.jpg", dpi = 300, width = 4, height = 3)
 
+# Make an even smaller version for grants
+grant <- ch4 %>%
+  filter(Chamber == "Ch. 8 (+3.3 ºC)",
+         DateTime_EST >= "2025-10-01",
+         DateTime_EST < "2025-11-01") %>%
+  ggplot(aes(x = DateTime_EST, y = CH4_umol_m2_h)) +
+  geom_line()+
+  guides(color = guide_legend(ncol = 4)) +
+  theme_hm +
+  theme(legend.position = "none",
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank())+
+  scale_x_datetime(
+    breaks = as_datetime(c("2025-10-01 00:00:00", "2025-10-15 00:00:00", "2025-11-01 00:00:00")),
+    labels = c("Oct 1", "Oct 15", "Nov 1")
+  )
+
+#Ch8 month 9
+
+ggsave(plot = grant, "../03_Figures/Presentation/Figure 2 - Data pres tiny (grant).jpg", dpi = 300, width = 2, height = 1)
+
 # Make an expanded version for the SI
 annual_panel <- patchwork::wrap_plots(
   annual +
@@ -502,7 +523,9 @@ hot_moments <- hm_df %>%
 
 write_csv(hot_moments %>%
             select(Chamber,
-                   annual_flux), 
+                   annual_flux,
+                   hot_sum_99
+                   ), 
           "annual_totals.csv") #Used in a wavelet fig
 
 # Generate panel labels

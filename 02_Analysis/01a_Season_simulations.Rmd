@@ -1,0 +1,397 @@
+---
+title: "CH4 analyses"
+author: "Abby Lewis"
+date: "2026-01-20"
+output: html_document
+---
+
+## Overview
+
+This file contains code to analyze and visualize the effects of soil warming on methane emissions, including changes in the proportional contribution of extreme fluxes (i.e., top 5%, 1%, and 0.2%). Code chunks should be run in order.
+
+### Table of contents: 
+
+-   Step 1: Load data and packages
+-   Step 2: Calculate summary statistics
+-   Step 3: Plot data summary (Figure 2 and variants)
+-   Step 4: Analyze the contribution of extreme fluxes (Figure 3 and variants)
+-   Step 5: Simulate low-frequency sampling to assess bias (Figure 4)
+-   Step 6: Daytime and WL sampling biases (SI)
+-   Step 7: Analyze residuals for annual and extreme fluxes
+
+
+## Step 1: Load data and packages
+
+```{r setup}
+# Load packages and functions
+library(tidyverse)
+source("R/hm_style.R")
+source("R/plot_all_data.R")
+source("R/make_gam_label.R")
+source("R/make_lm_label.R")
+source("R/calc_bias.R")
+
+# Load data
+ch4 <- read_csv(here::here("01_Data", "GENX_flux_data_interpolated_with_drivers.csv")) %>%
+  mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST"),
+         Chamber = factor(Chamber, levels = chamber_labels),
+         date = as_date(DateTime_EST)
+  )
+
+soil_temp <- read_csv(here::here("01_Data", "Soil_temp.csv")) %>%
+  mutate(DateTime_EST = with_tz(DateTime_EST, tz = "EST"),
+         Chamber = factor(Chamber, levels = chamber_labels))
+
+smartx <- read_csv(here::here("01_Data", "SMARTX CH4 and CO2 fluxes_2016-2025.csv")) %>%
+  mutate(date = as_date(Date, format = "%m/%d/%Y"),
+         CH4_umol_m2_h = `CH4 flux (umol/m2/d)`/24)
+
+# Number of days in analysis
+n_days <- as.numeric(difftime(max(ch4$DateTime_EST),
+  min(ch4$DateTime_EST),
+  units = "days"
+))
+
+annual_totals <- read_csv("annual_totals.csv")
+```
+```{r}
+# Only use days that have data from all 12 chambers
+hm_df <- ch4 %>%
+  filter(!is.na(CH4_umol_m2_h)) %>%
+  group_by(date) %>%
+  filter(length(unique(Chamber)) == 12)
+
+# Calculate the contribution of extreme fluxes
+annual_totals <- hm_df %>%
+  mutate(
+    month = month(date),
+    season = recode_values(month,
+                           3:5 ~ "Spring",
+                           6:8 ~ "Summer",
+                           9:11 ~ "Autumn")) %>%
+  group_by(Chamber, season) %>%
+  mutate(n_days = as.numeric(difftime(max(DateTime_EST),
+                                      min(DateTime_EST), units = "days"))) %>%
+  # Calculate sum of fluxes that exceed each threshold
+  # and convert to growing season total (mol/m2/y from umol/m2/h)
+  summarize(
+    n = sum(!is.na(CH4_umol_m2_h)),
+    annual_flux = sum(CH4_umol_m2_h, na.rm = T) /
+      n / 1000 / 1000 * (unique(n_days) * 24),
+    n_days = unique(n_days)
+  )
+```
+
+
+## Step 5: Simulate low-frequency sampling to assess bias (Figure 4)
+
+```{r fig_4}
+# Set simulation specs
+reps <- 10000
+set.seed(4700)
+intervals <- c("daily", "twice weekly", "weekly", "fortnightly", "monthly")
+
+# Add labels for day, month, week, and fortnight
+df <- ch4 %>%
+  mutate(
+    day = yday(date),
+    month = month(date),
+    week = week(date),
+    fortnight = week %/% 2
+  ) %>%
+  mutate(season = recode_values(month,
+                                3:5 ~ "Spring",
+                                6:8 ~ "Summer",
+                                9:11 ~ "Autumn"))
+
+# Run simulations
+df_out <- purrr::map(intervals, calc_bias, season = T) %>% # See calc_bias.R
+  bind_rows()
+
+# Summarize outputs
+to_plot <- df_out %>%
+  group_by(Chamber, rep, interval, time, season) %>%
+  summarize(
+    mean_hourly = sum(flux * n / sum(n), na.rm = TRUE),
+    tot_hourly_not_yet_mult = mean_hourly / 1e6, # Growing season total (simulated)
+    .groups = "drop"
+  ) %>%
+  left_join(
+    annual_totals %>% rename(tot_real = annual_flux), # Add totals (calculated high-frequency)
+    by = c("Chamber", "season")
+  ) %>%
+  mutate(tot_hourly = tot_hourly_not_yet_mult * n_days * 24, # Growing season total (simulated)
+         percent_bias = tot_hourly / tot_real * 100 - 100,
+         # Add temperature treatment
+         Temp_C = sub(" ºC", "", 
+                      str_extract(as.character(Chamber), 
+                                  "-*[0-9]+\\.*[0-9]* ºC")),
+         Temp_C = as.numeric(sub("mb", "0", Temp_C))
+  )
+
+to_plot_factored <- to_plot %>%
+  mutate(season = factor(season,
+                         levels = c("Spring", "Summer", "Autumn")))
+
+# Calculate medians
+to_plot_median <- to_plot_factored %>%
+  group_by(Chamber, interval, time, Temp_C, season) %>%
+  summarize(
+    median_bias = median(percent_bias, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot medians by time interval
+sims_full_day <- to_plot_median %>%
+  filter(time == "all") %>%
+  mutate(
+    interval = factor(interval, levels = intervals),
+    int_num = as.numeric(interval)
+  ) %>%
+  ggplot(aes(color = Chamber, x = int_num, y = median_bias)) +
+  geom_hline(yintercept = 0, color = "grey85") +
+  geom_line(size = 0.5) +
+  geom_point(aes(fill = Chamber), shape = 21, size = 2, stroke = 0.5) +
+  scale_x_continuous(
+    breaks = 1:length(intervals),
+    labels = intervals
+  ) +
+  scale_fill_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  scale_color_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  theme_hm +
+  facet_wrap(~season) +
+  ylab("Manual sampling bias (%)") +
+  xlab("Simulated sampling interval") +
+  guides(fill = guide_legend(ncol = 2)) +
+  theme(axis.text.x = element_text(
+    hjust = 1,
+    angle = 45
+  ),
+  legend.title.position = "top")
+
+# Plot monthly medians by temperature
+# First, calculate statistics for plot
+sims_label <- make_gam_label(
+  data = to_plot_median %>%
+    filter(
+      interval == "monthly",
+      time == "all"
+    ),
+  xvar = "Temp_C",
+  yvar = "median_bias",
+  group_var = "season"
+)
+
+# Generate plot
+sims_month <- to_plot_median %>%
+  filter(
+    interval == "monthly",
+    time == "all"
+  ) %>%
+  ggplot(aes(x = as.numeric(Temp_C), y = median_bias, group = "group")) +
+  geom_hline(yintercept = 0, color = "grey85") +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML"),
+              color = "black") +
+  geom_point(aes(fill = Chamber), shape = 21, size = 2, stroke = 0.5) +
+  geom_text(
+    data = sims_label,
+    aes(x = -Inf, y = -Inf, label = label),
+    hjust = 0, vjust = -0.5,
+    inherit.aes = FALSE, size = 2.5
+  ) +
+  scale_x_continuous(
+    limits = c(-0.5, 6.5),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  theme_hm +
+  facet_wrap(~season) +
+  theme(legend.title.position = "top") +
+  ylab("Manual sampling bias (%)") +
+  xlab("Temperature treatment (ºC above ambient)") +
+  guides(fill = guide_legend(ncol = 2))
+
+# Plot full distribution
+sims_dist <- to_plot_factored %>%
+  filter(
+    interval == "monthly",
+    time == "all"
+  ) %>%
+  ggplot(aes(x = as.numeric(Temp_C), y = percent_bias)) +
+  geom_hline(yintercept = 0, color = "grey85") +
+  # Without quantiles for shading
+  geom_violin(aes(color = Chamber, fill = Chamber),
+    position = "identity", alpha = 0.1, width = 0.5
+  ) +
+  # With 25 and 75%
+  geom_violin(aes(color = Chamber), fill = NA,
+    quantiles = c(0.25, 0.75), quantile.linetype = "11",
+    position = "identity", width = 0.5
+  ) +
+  # With median
+  geom_violin(aes(color = Chamber), fill = NA,
+    quantiles = c(0.5), quantile.linetype = "solid",
+    position = "identity", width = 0.5
+  ) +
+  scale_fill_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  scale_color_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  theme_hm +
+  facet_wrap(~season)+
+  scale_x_continuous(
+    limits = c(-0.5, 6.5),
+    expand = c(0, 0)
+  ) +
+  theme(legend.title.position = "top") +
+  ylab("Manual sampling bias (%)") +
+  xlab("Temperature treatment (ºC above ambient)") +
+  guides(fill = guide_legend(ncol = 2))
+
+# Combine plots
+with_dist2 <- patchwork::wrap_plots(
+  a = sims_month +
+    guides(fill = guide_legend(ncol = 1)) +
+    ylab("Monthly sampling bias\n(median %)") +
+    xlab("Temperature treatment (ºC above ambient)"),
+  b = sims_dist + theme(legend.position = "none") +
+    ylab("Monthly sampling bias (%)"),
+  c = sims_full_day +
+    ylab("Sampling bias\n(median %)") +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(hjust = 1, angle = 45)
+    ),
+  d = patchwork::guide_area(),
+  guides = "collect",
+  axes = "collect_x",
+  design = c("AAABBB
+              AAABBB
+              CCCCDD
+              CCCCDD")
+) +
+  patchwork::plot_annotation(
+    tag_levels = "a"
+  ) &
+  theme(plot.tag = element_text(face = "bold"))
+
+# Visualize and save
+with_dist2
+ggsave(with_dist2,
+  filename = "../03_Figures/SI/Figure 4a - Simulations all by season.jpg",
+  dpi = 300, width = 8, height = 5.5
+)
+```
+
+
+## Step 6: Daytime and WL sampling biases (SI)
+
+```{r fig_4}
+# Set simulation specs
+intervals <- c("monthly")
+
+# Add labels for day, month, week, and fortnight
+df <- ch4 %>%
+  mutate(
+    day = yday(date),
+    month = month(date),
+    week = week(date),
+    fortnight = week %/% 2,
+    DateTime_local = with_tz(DateTime_EST, tzone = "America/New_York"))%>%
+  mutate(season = recode_values(month,
+                                3:5 ~ "Spring",
+                                6:8 ~ "Summer",
+                                9:11 ~ "Autumn"))
+
+# Run simulations
+df_out <- calc_bias("monthly", only_time = F, season = T) %>% # See calc_bias.R
+  bind_rows()
+
+# Summarize outputs
+to_plot <- df_out %>%
+  group_by(Chamber, rep, interval, time, season) %>%
+  summarize(
+    mean_hourly = sum(flux * n / sum(n), na.rm = TRUE),
+    tot_hourly_not_mult = mean_hourly / 1e6, # Growing season total (simulated)
+    .groups = "drop"
+  ) %>%
+  left_join(
+    annual_totals %>% rename(tot_real = annual_flux), # Add totals (calculated high-frequency)
+    by = c("Chamber", "season")
+  ) %>%
+  mutate(tot_hourly = tot_hourly_not_mult * (n_days * 24),
+         percent_bias = tot_hourly / tot_real * 100 - 100,
+         # Add temperature treatment
+         Temp_C = sub(" ºC", "", 
+                      str_extract(as.character(Chamber), 
+                                  "-*[0-9]+\\.*[0-9]* ºC")),
+         Temp_C = as.numeric(sub("mb", "0", Temp_C)),
+         season = factor(season,
+                         levels = c("Spring", "Summer", "Autumn")))
+
+# Calculate medians
+to_plot_median <- to_plot %>%
+  group_by(Chamber, interval, time, Temp_C, season) %>%
+  summarize(
+    median_bias = median(percent_bias, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Stats
+to_plot_median %>%
+  group_by(interval, time, season) %>%
+  summarize(median = median(median_bias))
+
+# Plot medians by time interval
+sims_multiple_biases <- to_plot_median %>%
+  mutate(
+    time = factor(time, 
+                  levels = c("all", "daytime", "waterlevel"),
+                  labels = c("Fully random\nsampling times", 
+                             "Only daytime\nsampling", 
+                             "Only sampling\nwhen water level\nis at or below the\nmarsh surface")),
+  ) %>%
+  ggplot(aes(x = time, y = median_bias)) +
+  geom_hline(yintercept = 0, color = "grey85") +
+  geom_boxplot(outlier.shape = NA)+
+  geom_jitter(aes(fill = Chamber), shape = 21, size = 2, stroke = 0.5, width = 0.2) +
+  scale_fill_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  scale_color_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  coord_cartesian(xlim = c(0.5, 3.5), expand = c(left = F, right = F))+
+  theme_hm +
+  facet_wrap(~season)+
+  ylab("Bias of monthly sampling (%)") +
+  xlab("Simulated sampling bias") +
+  guides(fill = guide_legend(ncol = 6)) +
+  theme(axis.title.x = element_blank(),
+        legend.box.margin = margin(t = -25),
+        legend.title.position = "top")
+
+sims_multiple_biases
+
+ggsave(sims_multiple_biases,
+  filename = "../03_Figures/SI/SI - Multiple biases by season.jpg",
+  dpi = 300, width = 9, height = 4
+)
+```

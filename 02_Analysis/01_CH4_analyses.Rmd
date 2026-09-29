@@ -554,7 +554,7 @@ annual <- hot_moments %>%
   ) +
   scale_fill_manual(values = color.gradient, name = "Chamber") +
   theme_hm +
-  ylab(expression(atop("Growing season", "emissions (mol" ~ m^-2 ~ yr^-1 * ")"))) +
+  ylab(expression(atop("Growing season", "emissions (mol" ~ m^-2* ")"))) +
   xlab("Temperature treatment (ºC above ambient)") +
   theme(
     legend.position = "bottom",
@@ -652,9 +652,36 @@ ggsave(
   dpi = 300, width = 6, height = 5
 )
 
+# Format annual for pres
+annual_pres <- hot_moments %>%
+  ggplot(aes(x = Temp_C, y = annual_flux)) +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML"),
+              color = "black") +
+  geom_point(aes(fill = Chamber),
+    color = "black", shape = 21,
+    stroke = 0.5, size = 2
+  ) +
+  geom_text(
+    aes(x = -Inf, y = Inf, label = annual_label$label),
+    hjust = 0, vjust = 1.5,
+    inherit.aes = FALSE,
+    size = 3, data = data.frame()
+  ) +
+  scale_fill_manual(values = color.gradient, name = "Chamber") +
+  theme_hm +
+  ylab(expression(atop("Growing season", "emissions (mol" ~ m^-2* ")"))) +
+  xlab("Temperature treatment (ºC above ambient)") +
+  theme(
+    legend.position = "bottom",
+    legend.title.position = "top"
+  ) +
+  guides(fill = guide_legend(ncol = 4))
+
 # Format 1% panel for presentations
 top_pct_pres <- top_pct %>%
-  filter(name == "Top 1% of measurements") %>%
+  filter(name == "Top 5% of measurements") %>%
   ggplot(aes(x = Temp_C, y = value)) +
   geom_smooth(
     method = "gam",
@@ -669,16 +696,16 @@ top_pct_pres <- top_pct %>%
   ) +
   geom_text(
     data = label_df %>%
-      filter(name == "Top 1% of measurements"),
+      filter(name == "Top 5% of measurements"),
     aes(x = -Inf, y = Inf, label = label),
-    hjust = 0, vjust = 1.5,
-    inherit.aes = FALSE, size = 4
+    hjust = 0, vjust = 1.33,
+    inherit.aes = FALSE, size = 3
   ) +
   scale_fill_manual(values = color.gradient, name = "Chamber") +
   theme_hm +
-  ylab(expression(atop("Top 1% of fluxes", "(% of growing season emissions)"))) +
-  xlab("Temperature treatment (ºC above ambient)") +
-  guides(fill = guide_legend(ncol = 3))
+  ylab(expression(atop("Top 5% of fluxes (% of", "growing season emissions)"))) +
+  xlab("Temperature treatment (ºC above ambient)")  + 
+  guides(fill = guide_legend(ncol = 4))
 
 # Save presentation version
 ggsave(
@@ -689,17 +716,22 @@ ggsave(
 
 # Format growing season total and 1% panel for presentations
 comb_pres <- patchwork::wrap_plots(
-  annual + guides(fill = guide_legend(ncol = 3)),
+  annual_pres,
   top_pct_pres,
   nrow = 1, ncol = 2,
   guides = "collect", axes = "collect_x"
 ) &
-  theme(legend.position = "bottom")
+  theme(legend.position = "bottom",
+        # 1. Control space between the plot panel and the outer legend box
+    legend.box.spacing = unit(0, "pt"), 
+    
+    # 2. Control padding within/around the legend itself (Optional)
+    legend.margin = margin(0, 0, 0, 0))
 
 ggsave(
   comb_pres,
   filename = "../03_Figures/Presentation/Figure 3 - Top percent pres comb.jpg",
-  dpi = 300, width = 8, height = 4
+  dpi = 300, width = 6, height = 3
 )
 ```
 
@@ -906,8 +938,6 @@ ggsave(with_dist2,
 
 ```{r fig_4}
 # Set simulation specs
-reps <- 10000
-set.seed(4700)
 intervals <- c("monthly")
 
 # Add labels for day, month, week, and fortnight
@@ -985,6 +1015,71 @@ sims_multiple_biases
 ggsave(sims_multiple_biases,
   filename = "../03_Figures/SI/SI - Multiple biases.jpg",
   dpi = 300, width = 3.5, height = 4
+)
+
+sims_label <- make_gam_label(
+  data = to_plot_median %>%
+    filter(
+      interval == "monthly",
+      time == "all"
+    ),
+  xvar = "Temp_C",
+  yvar = "median_bias"
+)
+
+sims_month <- to_plot_median %>%
+  filter(
+    interval == "monthly",
+    time == "all"
+  ) %>%
+  ggplot(aes(x = as.numeric(Temp_C), y = median_bias, group = "group")) +
+  geom_hline(yintercept = 0, color = "grey85") +
+  geom_smooth(method = "gam",
+              formula = y ~ s(x, k = 3),
+              method.args = list(method = "REML"),
+              color = "black") +
+  geom_point(aes(fill = Chamber), shape = 21, size = 2, stroke = 0.5) +
+  geom_text(
+    data = sims_label,
+    aes(x = -Inf, y = -Inf, label = label),
+    hjust = 0, vjust = -0.5,
+    inherit.aes = FALSE, size = 3
+  ) +
+  scale_x_continuous(
+    limits = c(-0.5, 6.5),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(
+    values = color.gradient,
+    name = "Chamber"
+  ) +
+  theme_hm +
+  theme(legend.title.position = "top") +
+  ylab("Manual sampling bias (%)") +
+  xlab("Temperature treatment (ºC above ambient)") +
+  guides(fill = guide_legend(ncol = 6))
+
+# Format growing season total and 1% panel for presentations
+comb_pres <- patchwork::wrap_plots(
+  annual_pres +
+  guides(fill = guide_legend(ncol = 6)),
+  top_pct_pres +
+  guides(fill = guide_legend(ncol = 6)),
+  sims_month,
+  nrow = 1, ncol = 3,
+  guides = "collect", axes = "collect_x"
+) &
+  theme(legend.position = "bottom",
+        # 1. Control space between the plot panel and the outer legend box
+    legend.box.spacing = unit(0, "pt"), 
+    
+    # 2. Control padding within/around the legend itself (Optional)
+    legend.margin = margin(0, 0, 0, -50))
+
+ggsave(
+  comb_pres,
+  filename = "../03_Figures/Presentation/Figure 3 - Top percent pres comb sim.jpg",
+  dpi = 300, width = 8, height = 3
 )
 ```
 
